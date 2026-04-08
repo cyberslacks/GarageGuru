@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{% if query %}{{ query }} — {% endif %}F-350 Service Manual</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+
+<header class="site-header {% if query %}compact{% endif %}">
+  <div class="header-inner">
+    <a href="/" class="logo">
+      <span class="logo-truck">&#9655;</span>
+      <span class="logo-text">F-350 <span class="logo-accent">7.3L IDI</span></span>
+      <span class="logo-sub">Service Manual</span>
+    </a>
+
+    <form class="search-form" action="/" method="get">
+      <div class="search-box-wrap">
+        <input
+          type="text"
+          name="q"
+          class="search-input"
+          value="{{ query }}"
+          placeholder="Search the service manual..."
+          autocomplete="off"
+          autofocus
+        >
+        {% if section %}
+          <input type="hidden" name="section" value="{{ section }}">
+        {% endif %}
+        <button type="submit" class="search-btn">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+            <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+          </svg>
+        </button>
+      </div>
+    </form>
+  </div>
+</header>
+
+<main class="main-content">
+
+  {% if not query %}
+  <!-- ── Home page ── -->
+  <div class="home-hero">
+    <p class="hero-sub">1988 Ford F-350 2WD Pickup · V8 7.3L Diesel · Full factory service manual</p>
+    <div class="quick-searches">
+      <span class="qs-label">Quick searches:</span>
+      {% set quick = [
+        "oil pressure warning light",
+        "glow plug relay",
+        "fuel gauge sender",
+        "coolant temperature sensor",
+        "brake booster vacuum",
+        "alternator charging",
+        "injection pump",
+        "tachometer",
+      ] %}
+      {% for qs in quick %}
+        <a href="/?q={{ qs | urlencode }}" class="qs-pill">{{ qs }}</a>
+      {% endfor %}
+    </div>
+  </div>
+
+  <!-- Section browser -->
+  <div class="section-browser">
+    <h2 class="section-browser-title">Browse by Section</h2>
+    <div class="section-grid">
+      {% for s in sections %}
+        {% if s.section and s.cnt > 5 %}
+        <a href="/?q=*&section={{ s.section | urlencode }}" class="section-card">
+          <span class="section-name">{{ s.section }}</span>
+          <span class="section-count">{{ s.cnt }} pages</span>
+        </a>
+        {% endif %}
+      {% endfor %}
+    </div>
+  </div>
+
+  {% else %}
+  <!-- ── Results page ── -->
+
+  <div class="results-layout">
+
+    <!-- Sidebar filters -->
+    <aside class="sidebar">
+      <div class="sidebar-section">
+        <div class="sidebar-title">Filter by Section</div>
+        <a href="/?q={{ query | urlencode }}"
+           class="sidebar-link {% if not section %}active{% endif %}">
+          All sections
+          <span class="sidebar-count">{{ total }}</span>
+        </a>
+        {% for s in sections %}
+          {% if s.section %}
+          <a href="/?q={{ query | urlencode }}&section={{ s.section | urlencode }}"
+             class="sidebar-link {% if section == s.section %}active{% endif %}">
+            {{ s.section }}
+          </a>
+          {% endif %}
+        {% endfor %}
+      </div>
+    </aside>
+
+    <!-- Results -->
+    <div class="results-col">
+
+      {% if results %}
+        <div class="results-meta">
+          {% if section %}
+            <span>{{ total }} result{% if total != 1 %}s{% endif %} in <strong>{{ section }}</strong></span>
+            <a href="/?q={{ query | urlencode }}" class="clear-filter">✕ clear filter</a>
+          {% else %}
+            <span>{{ total }} result{% if total != 1 %}s{% endif %} for <strong>"{{ query }}"</strong></span>
+          {% endif %}
+        </div>
+
+        <div class="results-list">
+          {% for r in results %}
+          <div class="result-card">
+            <div class="result-path">{{ r.breadcrumb }}</div>
+            <a href="/page/{{ r.page_num }}?q={{ query | urlencode }}" class="result-title">
+              {{ r.title }}
+            </a>
+            <div class="result-snippet">{{ snippets.get(r.page_num, '') | safe }}</div>
+            <div class="result-meta">
+              <span class="result-file">pages/{{ r.page_num }}.html</span>
+            </div>
+          </div>
+          {% endfor %}
+        </div>
+
+        <!-- Pagination -->
+        {% if has_prev or has_next %}
+        <div class="pagination">
+          {% if has_prev %}
+            <a href="/?q={{ query | urlencode }}{% if section %}&section={{ section | urlencode }}{% endif %}&page={{ page - 1 }}"
+               class="page-btn">&#8592; Previous</a>
+          {% endif %}
+          <span class="page-info">Page {{ page }}</span>
+          {% if has_next %}
+            <a href="/?q={{ query | urlencode }}{% if section %}&section={{ section | urlencode }}{% endif %}&page={{ page + 1 }}"
+               class="page-btn">Next &#8594;</a>
+          {% endif %}
+        </div>
+        {% endif %}
+
+      {% else %}
+        <div class="no-results">
+          <div class="no-results-icon">&#128269;</div>
+          <h2>No results for "{{ query }}"</h2>
+          <p>Try broader terms — e.g. <a href="/?q=oil+pressure">"oil pressure"</a>
+             instead of "oil pressure warning lamp circuit".</p>
+          <div class="quick-searches" style="margin-top:1.5rem">
+            {% set quick = [
+              "oil pressure", "glow plug", "fuel sender",
+              "coolant temperature", "brake", "alternator"
+            ] %}
+            {% for qs in quick %}
+              <a href="/?q={{ qs | urlencode }}" class="qs-pill">{{ qs }}</a>
+            {% endfor %}
+          </div>
+        </div>
+      {% endif %}
+
+    </div><!-- /.results-col -->
+  </div><!-- /.results-layout -->
+  {% endif %}
+
+</main>
+
+<footer class="site-footer">
+  <span>1988 Ford F-350 7.3L IDI Service Manual · Operation CHARM</span>
+  <span class="footer-api"><a href="/api/search?q=oil+pressure" target="_blank">JSON API</a></span>
+</footer>
+
+</body>
+</html>

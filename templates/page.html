@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{{ page.title }} — F-350 Service Manual</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+
+<header class="site-header compact">
+  <div class="header-inner">
+    <a href="/" class="logo">
+      <span class="logo-truck">&#9655;</span>
+      <span class="logo-text">F-350 <span class="logo-accent">7.3L IDI</span></span>
+      <span class="logo-sub">Service Manual</span>
+    </a>
+
+    <form class="search-form" action="/" method="get">
+      <div class="search-box-wrap">
+        <input
+          type="text"
+          name="q"
+          class="search-input"
+          value="{{ query }}"
+          placeholder="Search the service manual..."
+          autocomplete="off"
+          autofocus
+        >
+        <button type="submit" class="search-btn">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+            <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+          </svg>
+        </button>
+      </div>
+    </form>
+  </div>
+</header>
+
+<main class="main-content">
+
+  <div class="page-layout">
+
+    <!-- Page sidebar -->
+    <aside class="sidebar">
+      <div class="sidebar-section">
+        {% if query %}
+        <a href="/?q={{ query | urlencode }}" class="back-btn">&#8592; Back to results</a>
+        {% else %}
+        <a href="/" class="back-btn">&#8592; Back to home</a>
+        {% endif %}
+      </div>
+
+      <div class="sidebar-section">
+        <div class="sidebar-title">Location</div>
+        <div class="page-breadcrumb-sidebar">
+          {% if page.breadcrumb %}
+            {% for part in page.breadcrumb.split(' > ') %}
+              <div class="breadcrumb-part {% if loop.last %}breadcrumb-current{% endif %}">
+                {% if not loop.last %}<span class="breadcrumb-arrow">&#8250;</span>{% endif %}
+                {{ part }}
+              </div>
+            {% endfor %}
+          {% else %}
+            <div class="breadcrumb-part">Root</div>
+          {% endif %}
+        </div>
+      </div>
+
+      <div class="sidebar-section">
+        <div class="sidebar-title">Page Info</div>
+        <div class="page-meta-list">
+          <div class="meta-row">
+            <span class="meta-label">Page</span>
+            <span class="meta-value">{{ page.page_num }}</span>
+          </div>
+          {% if page.section %}
+          <div class="meta-row">
+            <span class="meta-label">Section</span>
+            <span class="meta-value">{{ page.section }}</span>
+          </div>
+          {% endif %}
+          {% if page.subsection %}
+          <div class="meta-row">
+            <span class="meta-label">Subsection</span>
+            <span class="meta-value">{{ page.subsection }}</span>
+          </div>
+          {% endif %}
+        </div>
+      </div>
+
+      <div class="sidebar-section">
+        <div class="sidebar-title">Navigate</div>
+        <div class="page-nav-btns">
+          <a href="/page/{{ page.page_num - 1 }}{% if query %}?q={{ query | urlencode }}{% endif %}"
+             class="nav-page-btn">&#8592; Prev page</a>
+          <a href="/page/{{ page.page_num + 1 }}{% if query %}?q={{ query | urlencode }}{% endif %}"
+             class="nav-page-btn">Next page &#8594;</a>
+        </div>
+      </div>
+    </aside>
+
+    <!-- Page content -->
+    <div class="page-content-col">
+      <div class="page-title-bar">
+        <h1 class="page-title">{{ page.title }}</h1>
+        <span class="page-num-badge">p.{{ page.page_num }}</span>
+      </div>
+
+      <div class="manual-content">
+        {{ content_html | safe }}
+      </div>
+    </div>
+
+  </div>
+
+</main>
+
+<footer class="site-footer">
+  <span>1988 Ford F-350 7.3L IDI Service Manual · Operation CHARM</span>
+  <span class="footer-api"><a href="/api/page/{{ page.page_num }}" target="_blank">JSON</a></span>
+</footer>
+
+</body>
+</html>
