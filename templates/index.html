@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>{% if query %}{{ query }} — {% endif %}F-350 Service Manual</title>
+  <title>{% if query %}{{ query }} — {% endif %}Service Manuals</title>
   <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
@@ -12,8 +12,8 @@
   <div class="header-inner">
     <a href="/" class="logo">
       <span class="logo-truck">&#9655;</span>
-      <span class="logo-text">F-350 <span class="logo-accent">7.3L IDI</span></span>
-      <span class="logo-sub">Service Manual</span>
+      <span class="logo-text">Service <span class="logo-accent">Manuals</span></span>
+      <span class="logo-sub">Factory Manuals · Full Text Search</span>
     </a>
 
     <form class="search-form" action="/" method="get">
@@ -23,12 +23,15 @@
           name="q"
           class="search-input"
           value="{{ query }}"
-          placeholder="Search the service manual..."
+          placeholder="Search all manuals..."
           autocomplete="off"
           autofocus
         >
         {% if section %}
           <input type="hidden" name="section" value="{{ section }}">
+        {% endif %}
+        {% if vehicle_slug %}
+          <input type="hidden" name="vehicle" value="{{ vehicle_slug }}">
         {% endif %}
         <button type="submit" class="search-btn">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
@@ -45,7 +48,7 @@
   {% if not query %}
   <!-- ── Home page ── -->
   <div class="home-hero">
-    <p class="hero-sub">1988 Ford F-350 2WD Pickup · V8 7.3L Diesel · Full factory service manual</p>
+    <p class="hero-sub">Factory service manuals — fully indexed and searchable</p>
     <div class="quick-searches">
       <span class="qs-label">Quick searches:</span>
       {% set quick = [
@@ -64,8 +67,21 @@
     </div>
   </div>
 
-  <!-- Section browser -->
+  <!-- Vehicle cards -->
   <div class="section-browser">
+    <h2 class="section-browser-title">Indexed Vehicles</h2>
+    <div class="vehicle-grid">
+      {% for v in vehicles %}
+      <a href="/?q=*&vehicle={{ v.slug | urlencode }}" class="vehicle-card">
+        <span class="vehicle-name">{{ v.vehicle }}</span>
+        <span class="section-count">{{ v.cnt }} pages</span>
+      </a>
+      {% endfor %}
+    </div>
+  </div>
+
+  <!-- Section browser -->
+  <div class="section-browser" style="margin-top:2.5rem">
     <h2 class="section-browser-title">Browse by Section</h2>
     <div class="section-grid">
       {% for s in sections %}
@@ -86,22 +102,42 @@
 
     <!-- Sidebar filters -->
     <aside class="sidebar">
+
+      <!-- Vehicle filter -->
+      {% if vehicles | length > 1 %}
       <div class="sidebar-section">
-        <div class="sidebar-title">Filter by Section</div>
-        <a href="/?q={{ query | urlencode }}"
+        <div class="sidebar-title">Vehicle</div>
+        <a href="/?q={{ query | urlencode }}{% if section %}&section={{ section | urlencode }}{% endif %}"
+           class="sidebar-link {% if not vehicle_slug %}active{% endif %}">
+          All vehicles
+          <span class="sidebar-count">{{ total }}</span>
+        </a>
+        {% for v in vehicles %}
+          <a href="/?q={{ query | urlencode }}&vehicle={{ v.slug | urlencode }}{% if section %}&section={{ section | urlencode }}{% endif %}"
+             class="sidebar-link {% if vehicle_slug == v.slug %}active{% endif %}">
+            {{ v.vehicle }}
+          </a>
+        {% endfor %}
+      </div>
+      {% endif %}
+
+      <!-- Section filter -->
+      <div class="sidebar-section">
+        <div class="sidebar-title">Section</div>
+        <a href="/?q={{ query | urlencode }}{% if vehicle_slug %}&vehicle={{ vehicle_slug | urlencode }}{% endif %}"
            class="sidebar-link {% if not section %}active{% endif %}">
           All sections
-          <span class="sidebar-count">{{ total }}</span>
         </a>
         {% for s in sections %}
           {% if s.section %}
-          <a href="/?q={{ query | urlencode }}&section={{ s.section | urlencode }}"
+          <a href="/?q={{ query | urlencode }}{% if vehicle_slug %}&vehicle={{ vehicle_slug | urlencode }}{% endif %}&section={{ s.section | urlencode }}"
              class="sidebar-link {% if section == s.section %}active{% endif %}">
             {{ s.section }}
           </a>
           {% endif %}
         {% endfor %}
       </div>
+
     </aside>
 
     <!-- Results -->
@@ -111,7 +147,10 @@
         <div class="results-meta">
           {% if section %}
             <span>{{ total }} result{% if total != 1 %}s{% endif %} in <strong>{{ section }}</strong></span>
-            <a href="/?q={{ query | urlencode }}" class="clear-filter">✕ clear filter</a>
+            <a href="/?q={{ query | urlencode }}{% if vehicle_slug %}&vehicle={{ vehicle_slug | urlencode }}{% endif %}" class="clear-filter">✕ clear filter</a>
+          {% elif vehicle_name %}
+            <span>{{ total }} result{% if total != 1 %}s{% endif %} in <strong>{{ vehicle_name }}</strong></span>
+            <a href="/?q={{ query | urlencode }}" class="clear-filter">✕ all vehicles</a>
           {% else %}
             <span>{{ total }} result{% if total != 1 %}s{% endif %} for <strong>"{{ query }}"</strong></span>
           {% endif %}
@@ -120,8 +159,9 @@
         <div class="results-list">
           {% for r in results %}
           <div class="result-card">
+            <div class="result-vehicle">{{ r.vehicle }}</div>
             <div class="result-path">{{ r.breadcrumb }}</div>
-            <a href="/page/{{ r.page_num }}?q={{ query | urlencode }}" class="result-title">
+            <a href="/page/{{ slugify(r.vehicle) }}/{{ r.page_num }}?q={{ query | urlencode }}" class="result-title">
               {{ r.title }}
             </a>
             <div class="result-snippet">{{ snippets.get(r.page_num, '') | safe }}</div>
@@ -136,12 +176,12 @@
         {% if has_prev or has_next %}
         <div class="pagination">
           {% if has_prev %}
-            <a href="/?q={{ query | urlencode }}{% if section %}&section={{ section | urlencode }}{% endif %}&page={{ page - 1 }}"
+            <a href="/?q={{ query | urlencode }}{% if vehicle_slug %}&vehicle={{ vehicle_slug | urlencode }}{% endif %}{% if section %}&section={{ section | urlencode }}{% endif %}&page={{ page - 1 }}"
                class="page-btn">&#8592; Previous</a>
           {% endif %}
           <span class="page-info">Page {{ page }}</span>
           {% if has_next %}
-            <a href="/?q={{ query | urlencode }}{% if section %}&section={{ section | urlencode }}{% endif %}&page={{ page + 1 }}"
+            <a href="/?q={{ query | urlencode }}{% if vehicle_slug %}&vehicle={{ vehicle_slug | urlencode }}{% endif %}{% if section %}&section={{ section | urlencode }}{% endif %}&page={{ page + 1 }}"
                class="page-btn">Next &#8594;</a>
           {% endif %}
         </div>
@@ -172,7 +212,7 @@
 </main>
 
 <footer class="site-footer">
-  <span>1988 Ford F-350 7.3L IDI Service Manual · Operation CHARM</span>
+  <span>Service Manual Search · Operation CHARM</span>
   <span class="footer-api"><a href="/api/search?q=oil+pressure" target="_blank">JSON API</a></span>
 </footer>
 

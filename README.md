@@ -4,6 +4,29 @@ Full-text search interface for the factory service manual. 10,000+ indexed pages
 
 ---
 
+## Adding a Vehicle
+
+Any vehicle with an Operation CHARM source directory can be indexed. Run `build_index.py` once per vehicle — it appends to the existing database without touching other vehicles.
+
+```bash
+venv/bin/python3 build_index.py \
+  --source "../sources/2014 Toyota Sienna XLE FWD/" \
+  --vehicle "2014 Toyota Sienna XLE FWD"
+
+venv/bin/python3 build_index.py \
+  --source "../sources/2005 Toyota Prius/" \
+  --vehicle "2005 Toyota Prius"
+```
+
+Re-running for the same vehicle safely re-indexes it (removes old pages first).
+
+To wipe the entire database and start fresh:
+```bash
+venv/bin/python3 build_index.py --rebuild
+```
+
+---
+
 ## First-Time Setup
 
 ### 1. Create the virtual environment
@@ -78,7 +101,7 @@ To stop the server press `Ctrl+C`.
 ## Command-Line Search (no browser needed)
 
 ```bash
-# Basic search
+# Basic search (all vehicles)
 venv/bin/python3 search.py "oil pressure warning light"
 
 # More results
@@ -87,11 +110,17 @@ venv/bin/python3 search.py "fuel sender" --results 10
 # Show full page content
 venv/bin/python3 search.py "glow plug relay" --full
 
+# Filter to a vehicle
+venv/bin/python3 search.py "coolant temp" --vehicle "2014 Toyota Sienna"
+
 # Filter to a section
 venv/bin/python3 search.py "temperature" --section "Cooling"
 
 # View a specific page by number
-venv/bin/python3 search.py --page 1843
+venv/bin/python3 search.py --page 1843 --vehicle "F-350"
+
+# List all indexed vehicles
+venv/bin/python3 search.py --vehicles
 
 # List all available sections
 venv/bin/python3 search.py --sections

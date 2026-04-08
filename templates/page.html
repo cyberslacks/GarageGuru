@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>{{ page.title }} — F-350 Service Manual</title>
+  <title>{{ page.title }} — Service Manuals</title>
   <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
@@ -12,8 +12,8 @@
   <div class="header-inner">
     <a href="/" class="logo">
       <span class="logo-truck">&#9655;</span>
-      <span class="logo-text">F-350 <span class="logo-accent">7.3L IDI</span></span>
-      <span class="logo-sub">Service Manual</span>
+      <span class="logo-text">Service <span class="logo-accent">Manuals</span></span>
+      <span class="logo-sub">Factory Manuals · Full Text Search</span>
     </a>
 
     <form class="search-form" action="/" method="get">
@@ -23,7 +23,7 @@
           name="q"
           class="search-input"
           value="{{ query }}"
-          placeholder="Search the service manual..."
+          placeholder="Search all manuals..."
           autocomplete="off"
           autofocus
         >
@@ -49,6 +49,11 @@
         {% else %}
         <a href="/" class="back-btn">&#8592; Back to home</a>
         {% endif %}
+      </div>
+
+      <div class="sidebar-section">
+        <div class="sidebar-title">Vehicle</div>
+        <div class="page-vehicle-name">{{ page.vehicle }}</div>
       </div>
 
       <div class="sidebar-section">
@@ -92,9 +97,9 @@
       <div class="sidebar-section">
         <div class="sidebar-title">Navigate</div>
         <div class="page-nav-btns">
-          <a href="/page/{{ page.page_num - 1 }}{% if query %}?q={{ query | urlencode }}{% endif %}"
+          <a href="/page/{{ vehicle_slug }}/{{ page.page_num - 1 }}{% if query %}?q={{ query | urlencode }}{% endif %}"
              class="nav-page-btn">&#8592; Prev page</a>
-          <a href="/page/{{ page.page_num + 1 }}{% if query %}?q={{ query | urlencode }}{% endif %}"
+          <a href="/page/{{ vehicle_slug }}/{{ page.page_num + 1 }}{% if query %}?q={{ query | urlencode }}{% endif %}"
              class="nav-page-btn">Next page &#8594;</a>
         </div>
       </div>
@@ -117,8 +122,8 @@
 </main>
 
 <footer class="site-footer">
-  <span>1988 Ford F-350 7.3L IDI Service Manual · Operation CHARM</span>
-  <span class="footer-api"><a href="/api/page/{{ page.page_num }}" target="_blank">JSON</a></span>
+  <span>{{ page.vehicle }} · Service Manual</span>
+  <span class="footer-api"><a href="/api/page/{{ vehicle_slug }}/{{ page.page_num }}" target="_blank">JSON</a></span>
 </footer>
 
 </body>
