@@ -186,10 +186,17 @@ def render_page_html(vehicle: str, page_num: int, pages_dir: str = None) -> str:
     v_slug = slugify(vehicle)
     for a in main_div.find_all("a", href=True):
         href = a["href"]
-        if href.endswith(".html") and not href.startswith("http"):
+        if href.startswith("http"):
+            continue
+        # Split off fragment (#section-name) before checking extension
+        fragment = ""
+        if "#" in href:
+            href, fragment = href.split("#", 1)
+            fragment = "#" + fragment
+        if href.endswith(".html"):
             page_match = re.search(r"(\d+)\.html", href)
             if page_match:
-                a["href"] = f"/page/{v_slug}/{page_match.group(1)}"
+                a["href"] = f"/page/{v_slug}/{page_match.group(1)}{fragment}"
 
     # Rewrite image paths → /manual-static/<relative-to-MANUAL_ROOT>/...
     for img in main_div.find_all("img"):
