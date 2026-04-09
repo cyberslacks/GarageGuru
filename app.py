@@ -7,9 +7,11 @@ Then open: http://localhost:5000
 
 import sqlite3
 import re
+import threading
 from pathlib import Path
-from flask import Flask, render_template, request, jsonify, send_from_directory, abort
+from flask import Flask, render_template, request, jsonify, send_from_directory, abort, Response, stream_with_context
 from bs4 import BeautifulSoup
+from downloader import add_vehicle, create_job, get_job, derive_folder_name
 
 app = Flask(__name__)
 
@@ -327,9 +329,87 @@ def api_page(vehicle_slug, page_num):
     return jsonify(data)
 
 
+@app.route("/api/vehicles")
+def api_vehicles():
+    return jsonify(get_vehicles())
+
+
 @app.route("/manual-static/<path:filename>")
 def serve_manual_static(filename):
     return send_from_directory(MANUAL_ROOT, filename)
+
+
+# ─────────────────────────────────────────────
+# Add Vehicle
+# ─────────────────────────────────────────────
+
+@app.route("/add-vehicle", methods=["GET"])
+def add_vehicle_page():
+    return render_template("add_vehicle.html")
+
+
+@app.route("/add-vehicle/start", methods=["POST"])
+def add_vehicle_start():
+    url          = request.form.get("url", "").strip()
+    vehicle_name = request.form.get("vehicle_name", "").strip()
+    folder_name  = request.form.get("folder_name", "").strip() or None
+
+    if not url or not vehicle_name:
+        return jsonify({"error": "url and vehicle_name are required"}), 400
+
+    if not folder_name:
+        folder_name = derive_folder_name(vehicle_name)
+
+    job_id = create_job()
+
+    thread = threading.Thread(
+        target=add_vehicle,
+        args=(url, vehicle_name),
+        kwargs={"vehicle_folder": folder_name, "job_id": job_id},
+        daemon=True,
+    )
+    thread.start()
+
+    return jsonify({"job_id": job_id, "folder": folder_name})
+
+
+@app.route("/add-vehicle/progress/<job_id>")
+def add_vehicle_progress(job_id):
+    """Server-Sent Events stream for job progress."""
+    import time
+    import json
+
+    def generate():
+        last_idx = 0
+        while True:
+            job = get_job(job_id)
+            if not job:
+                yield f"data: {json.dumps({'error': 'Job not found'})}\n\n"
+                break
+
+            messages = job.get("messages", [])
+            for msg in messages[last_idx:]:
+                yield f"data: {json.dumps({'msg': msg})}\n\n"
+            last_idx = len(messages)
+
+            if job.get("done"):
+                error = job.get("error")
+                if error:
+                    yield f"data: {json.dumps({'done': True, 'error': error})}\n\n"
+                else:
+                    yield f"data: {json.dumps({'done': True})}\n\n"
+                break
+
+            time.sleep(0.5)
+
+    return Response(
+        stream_with_context(generate()),
+        mimetype="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 # ─────────────────────────────────────────────

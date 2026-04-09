@@ -647,6 +647,172 @@ a:hover { text-decoration: underline; }
   color: var(--amber);
 }
 
+/* ── Add Vehicle button in header ────────────────────────── */
+
+.add-vehicle-btn {
+  flex-shrink: 0;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  font-size: 0.82rem;
+  font-weight: 500;
+  padding: 0.4rem 0.85rem;
+  border-radius: var(--radius);
+  text-decoration: none;
+  white-space: nowrap;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+.add-vehicle-btn:hover {
+  background: var(--surface3);
+  border-color: var(--accent);
+  color: var(--text);
+  text-decoration: none;
+}
+
+/* ── Add Vehicle page ─────────────────────────────────────── */
+
+.add-vehicle-layout {
+  display: flex;
+  gap: 1.75rem;
+  align-items: flex-start;
+}
+
+.add-vehicle-col { flex: 1; min-width: 0; }
+
+.add-vehicle-desc {
+  color: var(--text-muted);
+  font-size: 0.9rem;
+  margin-bottom: 1.25rem;
+  line-height: 1.6;
+}
+
+/* Source cards */
+.source-cards {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.75rem;
+  margin-bottom: 1.75rem;
+}
+.source-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+  border-radius: var(--radius);
+  padding: 0.75rem 1rem;
+}
+.source-name {
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: var(--accent);
+  margin-bottom: 0.3rem;
+}
+.source-desc {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  line-height: 1.5;
+}
+
+/* Form */
+.add-form {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 1.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1.1rem;
+  margin-bottom: 1.5rem;
+}
+
+.form-group { display: flex; flex-direction: column; gap: 0.4rem; }
+
+.form-label {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.form-hint { font-weight: 400; text-transform: none; letter-spacing: 0; color: var(--text-dim); }
+
+.form-input {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text);
+  font-size: 0.92rem;
+  padding: 0.55rem 0.85rem;
+  outline: none;
+  transition: border-color 0.15s;
+  width: 100%;
+}
+.form-input:focus { border-color: var(--accent); box-shadow: 0 0 0 2px rgba(47,128,237,0.15); }
+.form-input::placeholder { color: var(--text-dim); }
+
+.folder-prefix {
+  font-size: 0.78rem;
+  color: var(--green);
+  font-family: monospace;
+  margin-bottom: 0.2rem;
+}
+.folder-input { font-family: monospace; font-size: 0.88rem; }
+
+.submit-btn {
+  background: var(--accent);
+  border: none;
+  border-radius: var(--radius);
+  color: #fff;
+  cursor: pointer;
+  font-size: 0.92rem;
+  font-weight: 600;
+  padding: 0.65rem 1.5rem;
+  align-self: flex-start;
+  transition: background 0.15s;
+}
+.submit-btn:hover { background: var(--accent-glow); }
+.submit-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* Progress console */
+.progress-wrap {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+}
+.progress-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.75rem 1rem;
+  background: var(--surface2);
+  border-bottom: 1px solid var(--border);
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--text);
+}
+.progress-status { font-size: 0.8rem; font-weight: 400; }
+.status-ok  { color: var(--green); }
+.status-error { color: var(--red); }
+
+.console {
+  background: var(--bg);
+  padding: 0.75rem 1rem;
+  font-family: monospace;
+  font-size: 0.82rem;
+  color: var(--text-muted);
+  max-height: 380px;
+  overflow-y: auto;
+  line-height: 1.7;
+}
+.console-line.error { color: var(--red); }
+
+.done-actions {
+  display: flex;
+  gap: 0.75rem;
+  padding: 0.75rem 1rem;
+  border-top: 1px solid var(--border);
+}
+
 /* ── Footer ──────────────────────────────────────────────── */
 
 .site-footer {

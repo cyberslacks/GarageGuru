@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Add Vehicle — Service Manuals</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+
+<header class="site-header compact">
+  <div class="header-inner">
+    <a href="/" class="logo">
+      <span class="logo-truck">&#9655;</span>
+      <span class="logo-text">Service <span class="logo-accent">Manuals</span></span>
+      <span class="logo-sub">Factory Manuals · Full Text Search</span>
+    </a>
+    <form class="search-form" action="/" method="get">
+      <div class="search-box-wrap">
+        <input type="text" name="q" class="search-input" placeholder="Search all manuals..." autocomplete="off">
+        <button type="submit" class="search-btn">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+            <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+          </svg>
+        </button>
+      </div>
+    </form>
+  </div>
+</header>
+
+<main class="main-content">
+
+  <div class="add-vehicle-layout">
+
+    <div class="add-vehicle-col">
+
+      <div class="page-title-bar">
+        <h1 class="page-title">Add Vehicle Manual</h1>
+      </div>
+
+      <p class="add-vehicle-desc">
+        Download and index a factory service manual from
+        <strong>lemon-manuals.la</strong> or <strong>charm.li</strong>.
+        Paste the direct link to the ZIP file below.
+      </p>
+
+      <!-- Source guide -->
+      <div class="source-cards">
+        <div class="source-card">
+          <div class="source-name">lemon-manuals.la</div>
+          <div class="source-desc">Search for your vehicle, then right-click the download button and copy the ZIP link.</div>
+        </div>
+        <div class="source-card">
+          <div class="source-name">charm.li</div>
+          <div class="source-desc">Navigate to your vehicle's repair section, then use the Download ZIP link at the top of the page.</div>
+        </div>
+      </div>
+
+      <!-- Form -->
+      <form id="add-form" class="add-form" onsubmit="startDownload(event)">
+
+        <div class="form-group">
+          <label class="form-label" for="url">ZIP Download URL</label>
+          <input
+            type="url"
+            id="url"
+            name="url"
+            class="form-input"
+            placeholder="https://lemon-manuals.la/download/..."
+            required
+            autocomplete="off"
+          >
+        </div>
+
+        <div class="form-group">
+          <label class="form-label" for="vehicle_name">Vehicle Name <span class="form-hint">(used as the label in search)</span></label>
+          <input
+            type="text"
+            id="vehicle_name"
+            name="vehicle_name"
+            class="form-input"
+            placeholder="e.g. 2003 Honda Civic EX L4-1.7L FWD"
+            required
+            autocomplete="off"
+            oninput="updateFolder()"
+          >
+        </div>
+
+        <div class="form-group">
+          <label class="form-label" for="folder_name">
+            Folder Name <span class="form-hint">(auto-derived — edit if needed)</span>
+          </label>
+          <div class="folder-prefix">sources/vehicles/</div>
+          <input
+            type="text"
+            id="folder_name"
+            name="folder_name"
+            class="form-input folder-input"
+            placeholder="2003_Honda_Civic_EX_I4-1.7L_FWD_GSL"
+            autocomplete="off"
+          >
+        </div>
+
+        <button type="submit" class="submit-btn" id="submit-btn">
+          <span id="btn-label">Download &amp; Index</span>
+        </button>
+
+      </form>
+
+      <!-- Progress console -->
+      <div id="progress-wrap" class="progress-wrap" style="display:none">
+        <div class="progress-header">
+          <span id="progress-title">Working...</span>
+          <span id="progress-status" class="progress-status"></span>
+        </div>
+        <div id="console" class="console"></div>
+        <div id="done-actions" class="done-actions" style="display:none">
+          <a href="/" class="page-btn">&#8592; Back to search</a>
+          <button onclick="resetForm()" class="page-btn">Add another vehicle</button>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- Sidebar: already indexed -->
+    <aside class="sidebar">
+      <div class="sidebar-section">
+        <a href="/" class="back-btn">&#8592; Back to home</a>
+      </div>
+      <div class="sidebar-section">
+        <div class="sidebar-title">Already Indexed</div>
+        <div id="vehicle-list">Loading...</div>
+      </div>
+    </aside>
+
+  </div>
+
+</main>
+
+<footer class="site-footer">
+  <span>Service Manual Search</span>
+</footer>
+
+<script>
+  // Auto-derive folder name from vehicle name
+  function updateFolder() {
+    const name = document.getElementById("vehicle_name").value;
+    const folder = name.replace(/[^\w\s\-\.]/g, "").trim().replace(/\s+/g, "_");
+    document.getElementById("folder_name").value = folder;
+  }
+
+  // Load vehicle list into sidebar
+  fetch("/api/search?q=*&n=0")
+    .catch(() => null)
+    .then(() => {
+      fetch("/api/vehicles")
+        .then(r => r.json())
+        .then(data => {
+          const el = document.getElementById("vehicle-list");
+          if (!data.length) { el.textContent = "None yet"; return; }
+          el.innerHTML = data.map(v =>
+            `<div class="sidebar-link" style="cursor:default">${v.vehicle}</div>`
+          ).join("");
+        })
+        .catch(() => {
+          document.getElementById("vehicle-list").textContent = "—";
+        });
+    });
+
+  function startDownload(e) {
+    e.preventDefault();
+    const form = document.getElementById("add-form");
+    const formData = new FormData(form);
+    const btn = document.getElementById("submit-btn");
+    const progressWrap = document.getElementById("progress-wrap");
+    const consoleEl = document.getElementById("console");
+
+    btn.disabled = true;
+    document.getElementById("btn-label").textContent = "Starting...";
+    progressWrap.style.display = "block";
+    consoleEl.innerHTML = "";
+    document.getElementById("done-actions").style.display = "none";
+    document.getElementById("progress-status").textContent = "";
+    document.getElementById("progress-title").textContent = "Working...";
+
+    fetch("/add-vehicle/start", { method: "POST", body: formData })
+      .then(r => r.json())
+      .then(data => {
+        if (data.error) {
+          appendLine("ERROR: " + data.error, "error");
+          btn.disabled = false;
+          document.getElementById("btn-label").textContent = "Download & Index";
+          return;
+        }
+        streamProgress(data.job_id);
+      });
+  }
+
+  function streamProgress(jobId) {
+    const consoleEl = document.getElementById("console");
+    const es = new EventSource("/add-vehicle/progress/" + jobId);
+
+    es.onmessage = function(event) {
+      const data = JSON.parse(event.data);
+
+      if (data.msg !== undefined) {
+        appendLine(data.msg);
+      }
+
+      if (data.done) {
+        es.close();
+        if (data.error) {
+          document.getElementById("progress-title").textContent = "Failed";
+          document.getElementById("progress-status").className = "progress-status status-error";
+          document.getElementById("progress-status").textContent = data.error;
+        } else {
+          document.getElementById("progress-title").textContent = "Complete";
+          document.getElementById("progress-status").className = "progress-status status-ok";
+          document.getElementById("progress-status").textContent = "Vehicle indexed successfully";
+        }
+        document.getElementById("done-actions").style.display = "flex";
+        // Refresh vehicle list
+        location.reload();
+      }
+    };
+
+    es.onerror = function() {
+      es.close();
+      appendLine("Connection lost — check the terminal for status.", "error");
+    };
+  }
+
+  function appendLine(text, cls) {
+    const consoleEl = document.getElementById("console");
+    const line = document.createElement("div");
+    line.className = "console-line" + (cls ? " " + cls : "");
+    line.textContent = text;
+    consoleEl.appendChild(line);
+    consoleEl.scrollTop = consoleEl.scrollHeight;
+  }
+
+  function resetForm() {
+    document.getElementById("add-form").reset();
+    document.getElementById("progress-wrap").style.display = "none";
+    document.getElementById("submit-btn").disabled = false;
+    document.getElementById("btn-label").textContent = "Download & Index";
+  }
+</script>
+
+</body>
+</html>
