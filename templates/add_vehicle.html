@@ -29,51 +29,82 @@
 </header>
 
 <main class="main-content">
-
   <div class="add-vehicle-layout">
 
     <div class="add-vehicle-col">
-
       <div class="page-title-bar">
         <h1 class="page-title">Add Vehicle Manual</h1>
       </div>
 
-      <p class="add-vehicle-desc">
-        Download and index a factory service manual from
-        <strong>lemon-manuals.la</strong> or <strong>charm.li</strong>.
-        Paste the direct link to the ZIP file below.
-      </p>
+      <!-- Source tabs -->
+      <div class="source-tabs">
+        <button class="source-tab active" onclick="switchTab('local', this)">
+          &#128194; Local ZIP File
+          <span class="tab-badge">lemon-manuals.la</span>
+        </button>
+        <button class="source-tab" onclick="switchTab('url', this)">
+          &#8659; URL Download
+          <span class="tab-badge">charm.li</span>
+        </button>
+      </div>
 
-      <!-- Source guide -->
-      <div class="source-cards">
-        <div class="source-card">
-          <div class="source-name">lemon-manuals.la</div>
-          <div class="source-desc">Search for your vehicle, then right-click the download button and copy the ZIP link.</div>
+      <!-- Local file instructions -->
+      <div id="tab-local" class="tab-content">
+        <div class="source-instruction">
+          <div class="instruction-steps">
+            <div class="step"><span class="step-num">1</span>Go to <strong>lemon-manuals.la</strong> and search for your vehicle</div>
+            <div class="step"><span class="step-num">2</span>Click Download, complete the CAPTCHA, save the ZIP to your computer</div>
+            <div class="step"><span class="step-num">3</span>Paste the full path to the ZIP file below</div>
+          </div>
         </div>
-        <div class="source-card">
-          <div class="source-name">charm.li</div>
-          <div class="source-desc">Navigate to your vehicle's repair section, then use the Download ZIP link at the top of the page.</div>
+      </div>
+
+      <!-- URL instructions -->
+      <div id="tab-url" class="tab-content" style="display:none">
+        <div class="source-instruction">
+          <div class="instruction-steps">
+            <div class="step"><span class="step-num">1</span>Go to <strong>charm.li</strong> and navigate to your vehicle's repair section</div>
+            <div class="step"><span class="step-num">2</span>Find the Download ZIP link and copy the URL</div>
+            <div class="step"><span class="step-num">3</span>Paste the URL below</div>
+          </div>
         </div>
       </div>
 
       <!-- Form -->
       <form id="add-form" class="add-form" onsubmit="startDownload(event)">
+        <input type="hidden" id="source_type" name="source_type" value="local">
 
-        <div class="form-group">
+        <!-- Local file path (shown for lemon tab) -->
+        <div id="field-local" class="form-group">
+          <label class="form-label" for="local_path">Path to downloaded ZIP</label>
+          <input
+            type="text"
+            id="local_path"
+            name="local_path"
+            class="form-input"
+            placeholder="/home/jordan/Downloads/LEMON 2003 Honda Civic EX.zip"
+            autocomplete="off"
+          >
+          <div class="form-subhint">Full path to the ZIP file you downloaded from lemon-manuals.la</div>
+        </div>
+
+        <!-- URL (shown for charm tab) -->
+        <div id="field-url" class="form-group" style="display:none">
           <label class="form-label" for="url">ZIP Download URL</label>
           <input
             type="url"
             id="url"
             name="url"
             class="form-input"
-            placeholder="https://lemon-manuals.la/download/..."
-            required
+            placeholder="https://charm.li/download/..."
             autocomplete="off"
           >
         </div>
 
         <div class="form-group">
-          <label class="form-label" for="vehicle_name">Vehicle Name <span class="form-hint">(used as the label in search)</span></label>
+          <label class="form-label" for="vehicle_name">
+            Vehicle Name <span class="form-hint">(label used in search)</span>
+          </label>
           <input
             type="text"
             id="vehicle_name"
@@ -102,9 +133,8 @@
         </div>
 
         <button type="submit" class="submit-btn" id="submit-btn">
-          <span id="btn-label">Download &amp; Index</span>
+          <span id="btn-label">Index Manual</span>
         </button>
-
       </form>
 
       <!-- Progress console -->
@@ -119,22 +149,20 @@
           <button onclick="resetForm()" class="page-btn">Add another vehicle</button>
         </div>
       </div>
-
     </div>
 
-    <!-- Sidebar: already indexed -->
+    <!-- Sidebar -->
     <aside class="sidebar">
       <div class="sidebar-section">
         <a href="/" class="back-btn">&#8592; Back to home</a>
       </div>
       <div class="sidebar-section">
         <div class="sidebar-title">Already Indexed</div>
-        <div id="vehicle-list">Loading...</div>
+        <div id="vehicle-list"><span style="color:var(--text-dim);font-size:0.82rem">Loading...</span></div>
       </div>
     </aside>
 
   </div>
-
 </main>
 
 <footer class="site-footer">
@@ -142,43 +170,49 @@
 </footer>
 
 <script>
-  // Auto-derive folder name from vehicle name
+  function switchTab(tab, btn) {
+    document.querySelectorAll(".source-tab").forEach(b => b.classList.remove("active"));
+    btn.classList.add("active");
+
+    document.getElementById("source_type").value = tab;
+
+    document.getElementById("tab-local").style.display = tab === "local" ? "block" : "none";
+    document.getElementById("tab-url").style.display   = tab === "url"   ? "block" : "none";
+    document.getElementById("field-local").style.display = tab === "local" ? "flex" : "none";
+    document.getElementById("field-url").style.display   = tab === "url"   ? "flex" : "none";
+
+    document.getElementById("btn-label").textContent =
+      tab === "local" ? "Index Manual" : "Download & Index";
+  }
+
   function updateFolder() {
     const name = document.getElementById("vehicle_name").value;
     const folder = name.replace(/[^\w\s\-\.]/g, "").trim().replace(/\s+/g, "_");
     document.getElementById("folder_name").value = folder;
   }
 
-  // Load vehicle list into sidebar
-  fetch("/api/search?q=*&n=0")
-    .catch(() => null)
-    .then(() => {
-      fetch("/api/vehicles")
-        .then(r => r.json())
-        .then(data => {
-          const el = document.getElementById("vehicle-list");
-          if (!data.length) { el.textContent = "None yet"; return; }
-          el.innerHTML = data.map(v =>
-            `<div class="sidebar-link" style="cursor:default">${v.vehicle}</div>`
-          ).join("");
-        })
-        .catch(() => {
-          document.getElementById("vehicle-list").textContent = "—";
-        });
-    });
+  // Load vehicle list
+  fetch("/api/vehicles")
+    .then(r => r.json())
+    .then(data => {
+      const el = document.getElementById("vehicle-list");
+      if (!data.length) { el.innerHTML = '<span style="color:var(--text-dim);font-size:0.82rem">None yet</span>'; return; }
+      el.innerHTML = data.map(v =>
+        `<div class="sidebar-link" style="cursor:default;font-size:0.82rem">${v.vehicle}</div>`
+      ).join("");
+    })
+    .catch(() => {});
 
   function startDownload(e) {
     e.preventDefault();
-    const form = document.getElementById("add-form");
-    const formData = new FormData(form);
+    const formData = new FormData(document.getElementById("add-form"));
     const btn = document.getElementById("submit-btn");
     const progressWrap = document.getElementById("progress-wrap");
-    const consoleEl = document.getElementById("console");
 
     btn.disabled = true;
     document.getElementById("btn-label").textContent = "Starting...";
     progressWrap.style.display = "block";
-    consoleEl.innerHTML = "";
+    document.getElementById("console").innerHTML = "";
     document.getElementById("done-actions").style.display = "none";
     document.getElementById("progress-status").textContent = "";
     document.getElementById("progress-title").textContent = "Working...";
@@ -189,7 +223,7 @@
         if (data.error) {
           appendLine("ERROR: " + data.error, "error");
           btn.disabled = false;
-          document.getElementById("btn-label").textContent = "Download & Index";
+          document.getElementById("btn-label").textContent = "Index Manual";
           return;
         }
         streamProgress(data.job_id);
@@ -197,33 +231,25 @@
   }
 
   function streamProgress(jobId) {
-    const consoleEl = document.getElementById("console");
     const es = new EventSource("/add-vehicle/progress/" + jobId);
-
     es.onmessage = function(event) {
       const data = JSON.parse(event.data);
-
-      if (data.msg !== undefined) {
-        appendLine(data.msg);
-      }
-
+      if (data.msg !== undefined) appendLine(data.msg);
       if (data.done) {
         es.close();
+        const statusEl = document.getElementById("progress-status");
         if (data.error) {
           document.getElementById("progress-title").textContent = "Failed";
-          document.getElementById("progress-status").className = "progress-status status-error";
-          document.getElementById("progress-status").textContent = data.error;
+          statusEl.className = "progress-status status-error";
+          statusEl.textContent = data.error;
         } else {
           document.getElementById("progress-title").textContent = "Complete";
-          document.getElementById("progress-status").className = "progress-status status-ok";
-          document.getElementById("progress-status").textContent = "Vehicle indexed successfully";
+          statusEl.className = "progress-status status-ok";
+          statusEl.textContent = "Vehicle indexed successfully";
         }
         document.getElementById("done-actions").style.display = "flex";
-        // Refresh vehicle list
-        location.reload();
       }
     };
-
     es.onerror = function() {
       es.close();
       appendLine("Connection lost — check the terminal for status.", "error");
@@ -231,19 +257,19 @@
   }
 
   function appendLine(text, cls) {
-    const consoleEl = document.getElementById("console");
+    const el = document.getElementById("console");
     const line = document.createElement("div");
     line.className = "console-line" + (cls ? " " + cls : "");
     line.textContent = text;
-    consoleEl.appendChild(line);
-    consoleEl.scrollTop = consoleEl.scrollHeight;
+    el.appendChild(line);
+    el.scrollTop = el.scrollHeight;
   }
 
   function resetForm() {
     document.getElementById("add-form").reset();
     document.getElementById("progress-wrap").style.display = "none";
     document.getElementById("submit-btn").disabled = false;
-    document.getElementById("btn-label").textContent = "Download & Index";
+    document.getElementById("btn-label").textContent = "Index Manual";
   }
 </script>
 

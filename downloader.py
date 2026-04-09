@@ -232,14 +232,19 @@ def run_index(vehicle_name: str, pages_dir: Path, job_id: str = None):
     return True
 
 
-def add_vehicle(url: str, vehicle_name: str, vehicle_folder: str = None,
+def add_vehicle(vehicle_name: str, vehicle_folder: str = None,
+                url: str = None, local_path: str = None,
                 job_id: str = None):
-    """Full pipeline: download → extract → index."""
+    """Full pipeline: (download or use local file) → extract → index."""
     def log(msg):
         if job_id:
             job_log(job_id, msg)
         else:
             print(msg)
+
+    if not url and not local_path:
+        job_done(job_id, error="Must provide either a URL or a local file path")
+        return
 
     if not vehicle_folder:
         vehicle_folder = derive_folder_name(vehicle_name)
@@ -248,26 +253,40 @@ def add_vehicle(url: str, vehicle_name: str, vehicle_folder: str = None,
     log(f"Folder: sources/vehicles/{vehicle_folder}/")
     log("")
 
-    tmp_zip = Path(tempfile.mktemp(suffix=".zip"))
+    tmp_zip = None
+    cleanup_zip = False
 
     try:
-        # 1. Download
-        ok = download_zip(url, tmp_zip, job_id=job_id)
-        if not ok:
-            job_done(job_id, error="Download failed")
-            return
+        if local_path:
+            zip_path = Path(local_path).expanduser().resolve()
+            if not zip_path.exists():
+                job_done(job_id, error=f"File not found: {zip_path}")
+                return
+            if not zipfile.is_zipfile(zip_path):
+                job_done(job_id, error=f"Not a valid ZIP file: {zip_path}")
+                return
+            log(f"Using local file: {zip_path}")
+            log(f"  Size: {zip_path.stat().st_size / 1024 / 1024:.1f} MB")
+            log("")
+        else:
+            tmp_zip = Path(tempfile.mktemp(suffix=".zip"))
+            cleanup_zip = True
+            ok = download_zip(url, tmp_zip, job_id=job_id)
+            if not ok:
+                job_done(job_id, error="Download failed")
+                return
+            zip_path = tmp_zip
+            log("")
 
-        log("")
-
-        # 2. Extract
-        pages_dir = extract_and_install(tmp_zip, vehicle_folder, job_id=job_id)
+        # Extract
+        pages_dir = extract_and_install(zip_path, vehicle_folder, job_id=job_id)
         if pages_dir is None:
             job_done(job_id, error="Extraction failed — no pages/ directory found")
             return
 
         log("")
 
-        # 3. Index
+        # Index
         ok = run_index(vehicle_name, pages_dir, job_id=job_id)
         if not ok:
             job_done(job_id, error="Indexing failed")
@@ -281,7 +300,8 @@ def add_vehicle(url: str, vehicle_name: str, vehicle_folder: str = None,
         log(f"Unexpected error: {e}")
         job_done(job_id, error=str(e))
     finally:
-        tmp_zip.unlink(missing_ok=True)
+        if cleanup_zip and tmp_zip:
+            tmp_zip.unlink(missing_ok=True)
 
 
 # ─────────────────────────────────────────────
@@ -290,19 +310,23 @@ def add_vehicle(url: str, vehicle_name: str, vehicle_folder: str = None,
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Download and index a vehicle service manual ZIP",
+        description="Install and index a vehicle service manual ZIP",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=__doc__,
     )
-    parser.add_argument("--url", "-u", required=True,
-                        help="URL to the ZIP file (lemon-manuals.la or charm.li)")
+    source = parser.add_mutually_exclusive_group(required=True)
+    source.add_argument("--url", "-u",
+                        help="URL to the ZIP file (charm.li direct download)")
+    source.add_argument("--file", "-i",
+                        help="Path to a locally downloaded ZIP file")
     parser.add_argument("--vehicle", "-v", required=True,
                         help='Vehicle label, e.g. "2003 Honda Civic EX L4-1.7L"')
     parser.add_argument("--folder", "-f",
                         help="Override folder name (auto-derived from vehicle name if omitted)")
     args = parser.parse_args()
 
-    add_vehicle(args.url, args.vehicle, vehicle_folder=args.folder)
+    add_vehicle(args.vehicle, vehicle_folder=args.folder,
+                url=args.url, local_path=args.file)
 
 
 if __name__ == "__main__":

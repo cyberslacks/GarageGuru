@@ -350,12 +350,15 @@ def add_vehicle_page():
 
 @app.route("/add-vehicle/start", methods=["POST"])
 def add_vehicle_start():
-    url          = request.form.get("url", "").strip()
+    url          = request.form.get("url", "").strip() or None
+    local_path   = request.form.get("local_path", "").strip() or None
     vehicle_name = request.form.get("vehicle_name", "").strip()
     folder_name  = request.form.get("folder_name", "").strip() or None
 
-    if not url or not vehicle_name:
-        return jsonify({"error": "url and vehicle_name are required"}), 400
+    if not vehicle_name:
+        return jsonify({"error": "vehicle_name is required"}), 400
+    if not url and not local_path:
+        return jsonify({"error": "Provide either a download URL or a local file path"}), 400
 
     if not folder_name:
         folder_name = derive_folder_name(vehicle_name)
@@ -364,8 +367,9 @@ def add_vehicle_start():
 
     thread = threading.Thread(
         target=add_vehicle,
-        args=(url, vehicle_name),
-        kwargs={"vehicle_folder": folder_name, "job_id": job_id},
+        args=(vehicle_name,),
+        kwargs={"vehicle_folder": folder_name, "url": url,
+                "local_path": local_path, "job_id": job_id},
         daemon=True,
     )
     thread.start()
