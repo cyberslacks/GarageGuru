@@ -75,12 +75,11 @@ def get_sections(vehicle: str = None):
     return [dict(r) for r in rows]
 
 
-def do_search(query: str, n: int = 10, section: str = None,
-              vehicle: str = None, include_nav: bool = False):
-    conn = get_conn()
-
+def _run_fts(conn, fts_query: str, n: int, vehicle: str,
+             section: str, include_nav: bool) -> list:
+    """Execute one FTS query and return rows."""
     where_parts = ["pages_fts MATCH ?"]
-    params = [query]
+    params = [fts_query]
 
     if not include_nav:
         where_parts.append("p.is_nav = 0")
@@ -91,30 +90,61 @@ def do_search(query: str, n: int = 10, section: str = None,
         where_parts.append("p.section LIKE ?")
         params.append(f"%{section}%")
 
-    where_clause = " AND ".join(where_parts)
     params.append(n)
-
     sql = f"""
         SELECT p.id, p.vehicle, p.page_num, p.title, p.breadcrumb,
                p.section, p.subsection, p.content, p.is_nav, rank
         FROM pages_fts
         JOIN pages p ON pages_fts.rowid = p.id
-        WHERE {where_clause}
+        WHERE {" AND ".join(where_parts)}
         ORDER BY rank
         LIMIT ?
     """
-
     try:
-        rows = conn.execute(sql, params).fetchall()
+        return conn.execute(sql, params).fetchall()
     except sqlite3.OperationalError:
-        try:
-            params[0] = f'"{query}"'
-            rows = conn.execute(sql, params).fetchall()
-        except Exception:
-            rows = []
+        return []
+
+
+def do_search(query: str, n: int = 10, section: str = None,
+              vehicle: str = None, include_nav: bool = False):
+    """
+    Search with a three-tier fallback for multi-word queries:
+      1. Exact phrase  — "injection pump"   (words must be adjacent)
+      2. Proximity     — injection NEAR/5 pump  (words within 5 tokens)
+      3. All terms     — injection pump          (words anywhere on the page)
+
+    Single-word queries skip to tier 3 directly.
+    Results from higher tiers are returned first; lower-tier results are
+    appended only to fill up to n without duplicating.
+    """
+    conn = get_conn()
+    words = query.strip().split()
+    seen_ids = set()
+    results = []
+
+    def add_rows(rows):
+        for r in rows:
+            if r["id"] not in seen_ids:
+                seen_ids.add(r["id"])
+                results.append(dict(r))
+
+    if len(words) > 1:
+        # Tier 1 — exact phrase
+        phrase = f'"{query}"'
+        add_rows(_run_fts(conn, phrase, n, vehicle, section, include_nav))
+
+        # Tier 2 — proximity (words within 5 tokens of each other)
+        if len(results) < n:
+            near = " NEAR/5 ".join(words)
+            add_rows(_run_fts(conn, near, n, vehicle, section, include_nav))
+
+    # Tier 3 — all terms anywhere (standard FTS)
+    if len(results) < n:
+        add_rows(_run_fts(conn, query, n, vehicle, section, include_nav))
 
     conn.close()
-    return [dict(r) for r in rows]
+    return results[:n]
 
 
 def get_page_data(vehicle: str, page_num: int):
