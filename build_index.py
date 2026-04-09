@@ -27,7 +27,7 @@ from bs4 import BeautifulSoup
 
 DB_PATH = Path(__file__).parent / "truck_manual.db"
 
-DEFAULT_SOURCE  = Path(__file__).parent.parent / "sources" / "1988 Ford F 350 2WD Pickup V8-7.3L DSL" / "pages"
+DEFAULT_SOURCE  = Path(__file__).parent / "sources" / "vehicles" / "1988_Ford_F-350_v8-7.3L_2WD_DSL" / "pages"
 DEFAULT_VEHICLE = "1988 Ford F-350 7.3L IDI"
 
 

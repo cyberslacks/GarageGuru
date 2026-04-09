@@ -1,4 +1,20 @@
+# Python
 venv/
-*.db
 __pycache__/
 *.pyc
+*.pyo
+
+# Database (built locally — run build_index.py to regenerate)
+*.db
+
+# Vehicle source data — large HTML archives, not committed to git
+# Folder structure is tracked; data inside is not.
+# To restore: copy pages/ images/ icons/ into the vehicle folder,
+# then run: python3 build_index.py --source sources/vehicles/<folder>/pages --vehicle "Name"
+sources/vehicles/*/pages/
+sources/vehicles/*/images/
+sources/vehicles/*/icons/
+sources/vehicles/*/*.html
+sources/vehicles/*/*.css
+sources/vehicles/*/*.js
+sources/vehicles/*/README.txt

@@ -14,7 +14,7 @@ from bs4 import BeautifulSoup
 app = Flask(__name__)
 
 DB_PATH     = Path(__file__).parent / "truck_manual.db"
-MANUAL_ROOT = Path(__file__).parent.parent / "sources"
+MANUAL_ROOT = Path(__file__).parent / "sources" / "vehicles"
 
 
 # ─────────────────────────────────────────────
