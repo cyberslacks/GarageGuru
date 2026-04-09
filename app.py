@@ -156,18 +156,19 @@ def make_snippet(content: str, query: str, length: int = 300) -> str:
     return snippet
 
 
-def render_page_html(vehicle: str, page_num: int) -> str:
+def render_page_html(vehicle: str, page_num: int, pages_dir: str = None) -> str:
     """Extract and return the main content HTML from a manual page file."""
-    # Locate the source pages directory for this vehicle
-    vehicle_dir = None
-    for d in MANUAL_ROOT.iterdir():
-        if d.is_dir() and (d / "pages").exists():
-            pages_dir = d / "pages"
-            if (pages_dir / f"{page_num}.html").exists():
-                vehicle_dir = pages_dir
+    if pages_dir:
+        vehicle_dir = Path(pages_dir)
+    else:
+        # Fallback: search recursively (should not normally be needed)
+        vehicle_dir = None
+        for pd in MANUAL_ROOT.rglob("pages"):
+            if pd.is_dir() and (pd / f"{page_num}.html").exists():
+                vehicle_dir = pd
                 break
 
-    if vehicle_dir is None:
+    if vehicle_dir is None or not vehicle_dir.exists():
         return "<p>Page file not found.</p>"
 
     html_file = vehicle_dir / f"{page_num}.html"
@@ -190,12 +191,16 @@ def render_page_html(vehicle: str, page_num: int) -> str:
             if page_match:
                 a["href"] = f"/page/{v_slug}/{page_match.group(1)}"
 
-    # Rewrite image paths → /manual-static/<vehicle_dir_name>/...
-    dir_name = vehicle_dir.parent.name
+    # Rewrite image paths → /manual-static/<relative-to-MANUAL_ROOT>/...
     for img in main_div.find_all("img"):
         src = img.get("src", "")
         if src.startswith("../"):
-            img["src"] = f"/manual-static/{dir_name}/{src[3:]}"
+            abs_path = (vehicle_dir / src).resolve()
+            try:
+                rel = abs_path.relative_to(MANUAL_ROOT)
+                img["src"] = f"/manual-static/{rel}"
+            except ValueError:
+                pass
 
     return str(main_div)
 
@@ -261,7 +266,7 @@ def view_page(vehicle_slug, page_num):
     if not data:
         abort(404)
 
-    content_html = render_page_html(vehicle, page_num)
+    content_html = render_page_html(vehicle, page_num, pages_dir=data.get("pages_dir"))
     query = request.args.get("q", "")
 
     return render_template(

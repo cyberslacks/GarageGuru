@@ -100,6 +100,7 @@ SCHEMA_SQL = """
     CREATE TABLE IF NOT EXISTS pages (
         id          INTEGER PRIMARY KEY AUTOINCREMENT,
         vehicle     TEXT NOT NULL,
+        pages_dir   TEXT,
         page_num    INTEGER NOT NULL,
         title       TEXT NOT NULL,
         breadcrumb  TEXT,
@@ -222,6 +223,7 @@ def index_vehicle(pages_dir: Path, vehicle: str, rebuild: bool = False):
 
         batch.append((
             data["vehicle"],
+            str(pages_dir.resolve()),
             data["page_num"],
             data["title"],
             data["breadcrumb"],
@@ -234,8 +236,8 @@ def index_vehicle(pages_dir: Path, vehicle: str, rebuild: bool = False):
         if len(batch) >= BATCH_SIZE:
             cur.executemany("""
                 INSERT OR REPLACE INTO pages
-                    (vehicle, page_num, title, breadcrumb, section, subsection, content, is_nav)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    (vehicle, pages_dir, page_num, title, breadcrumb, section, subsection, content, is_nav)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, batch)
             conn.commit()
             inserted += len(batch)
@@ -244,8 +246,8 @@ def index_vehicle(pages_dir: Path, vehicle: str, rebuild: bool = False):
     if batch:
         cur.executemany("""
             INSERT OR REPLACE INTO pages
-                (vehicle, page_num, title, breadcrumb, section, subsection, content, is_nav)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                (vehicle, pages_dir, page_num, title, breadcrumb, section, subsection, content, is_nav)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, batch)
         conn.commit()
         inserted += len(batch)
