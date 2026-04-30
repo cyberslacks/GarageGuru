@@ -220,8 +220,13 @@ def make_snippet(content: str, query: str, length: int = 300) -> str:
     return snippet
 
 
-def render_page_html(vehicle: str, page_num: int, pages_dir: str = None) -> str:
-    """Extract and return the main content HTML from a manual page file."""
+def render_page_html(vehicle: str, page_num: int, pages_dir: str = None,
+                     db_content: str = None) -> str:
+    """Extract and return the main content HTML from a manual page file.
+
+    Falls back to db_content (plain text from the DB) when no HTML file exists
+    — used for transcript pages that were indexed from .txt sources.
+    """
     if pages_dir:
         vehicle_dir = Path(pages_dir)
         if not vehicle_dir.is_absolute():
@@ -234,10 +239,14 @@ def render_page_html(vehicle: str, page_num: int, pages_dir: str = None) -> str:
                 vehicle_dir = pd
                 break
 
-    if vehicle_dir is None or not vehicle_dir.exists():
+    html_file = vehicle_dir / f"{page_num}.html" if vehicle_dir else None
+
+    if not html_file or not html_file.exists():
+        if db_content:
+            escaped = db_content.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+            return f'<div class="main transcript-content"><p>{escaped}</p></div>'
         return "<p>Page file not found.</p>"
 
-    html_file = vehicle_dir / f"{page_num}.html"
     with open(html_file, "r", encoding="utf-8", errors="ignore") as f:
         soup = BeautifulSoup(f.read(), "html.parser")
 
@@ -342,7 +351,9 @@ def view_page(vehicle_slug, page_num):
     if not data:
         abort(404)
 
-    content_html = render_page_html(vehicle, page_num, pages_dir=data.get("pages_dir"))
+    content_html = render_page_html(vehicle, page_num,
+                                    pages_dir=data.get("pages_dir"),
+                                    db_content=data.get("content"))
     query        = request.args.get("q", "")
     section      = request.args.get("section", "")
     from_vehicle = request.args.get("vehicle", "")
