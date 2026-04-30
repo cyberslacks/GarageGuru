@@ -341,7 +341,9 @@ def view_page(vehicle_slug, page_num):
         abort(404)
 
     content_html = render_page_html(vehicle, page_num, pages_dir=data.get("pages_dir"))
-    query = request.args.get("q", "")
+    query        = request.args.get("q", "")
+    section      = request.args.get("section", "")
+    from_vehicle = request.args.get("vehicle", "")
 
     return render_template(
         "page.html",
@@ -349,6 +351,8 @@ def view_page(vehicle_slug, page_num):
         vehicle_slug=vehicle_slug,
         content_html=content_html,
         query=query,
+        section=section,
+        from_vehicle=from_vehicle,
     )
 
 

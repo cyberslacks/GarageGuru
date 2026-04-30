@@ -47,7 +47,7 @@
 
 <main class="main-content">
 
-  {% if not query %}
+  {% if not query and not section %}
   <!-- ── Home / Browse page ── -->
 
   {% if vehicle_slug %}
@@ -109,8 +109,8 @@
     </div>
   </div>
 
-  {% else %}
-  <!-- ── Results page ── -->
+  {% elif query or section %}
+  <!-- ── Results / Browse page ── -->
 
   <div class="results-layout">
 
@@ -175,7 +175,7 @@
           <div class="result-card">
             <div class="result-vehicle">{{ r.vehicle }}</div>
             <div class="result-path">{{ r.breadcrumb }}</div>
-            <a href="/page/{{ slugify(r.vehicle) }}/{{ r.page_num }}?q={{ query | urlencode }}" class="result-title">
+            <a href="/page/{{ slugify(r.vehicle) }}/{{ r.page_num }}?q={{ query | urlencode }}{% if section %}&section={{ section | urlencode }}{% endif %}{% if vehicle_slug %}&vehicle={{ vehicle_slug | urlencode }}{% endif %}" class="result-title">
               {{ r.title }}
             </a>
             <div class="result-snippet">{{ snippets.get(r.page_num, '') | safe }}</div>
@@ -204,9 +204,14 @@
       {% else %}
         <div class="no-results">
           <div class="no-results-icon">&#128269;</div>
+          {% if query %}
           <h2>No results for "{{ query }}"</h2>
           <p>Try broader terms — e.g. <a href="/?q=oil+pressure">"oil pressure"</a>
              instead of "oil pressure warning lamp circuit".</p>
+          {% else %}
+          <h2>No pages found in "{{ section }}"</h2>
+          <p><a href="/">Back to home</a></p>
+          {% endif %}
           <div class="quick-searches" style="margin-top:1.5rem">
             {% set quick = [
               "oil pressure", "glow plug", "fuel sender",
