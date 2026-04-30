@@ -224,6 +224,8 @@ def render_page_html(vehicle: str, page_num: int, pages_dir: str = None) -> str:
     """Extract and return the main content HTML from a manual page file."""
     if pages_dir:
         vehicle_dir = Path(pages_dir)
+        if not vehicle_dir.is_absolute():
+            vehicle_dir = Path(__file__).parent / vehicle_dir
     else:
         # Fallback: search recursively (should not normally be needed)
         vehicle_dir = None
