@@ -230,6 +230,27 @@ a:hover { text-decoration: underline; }
   line-height: 1.4;
 }
 
+/* ── Vehicle browse header ───────────────────────────────── */
+
+.browse-header {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 1rem 0 0.5rem;
+  font-size: 0.9rem;
+}
+.browse-label {
+  color: var(--text-dim);
+  text-transform: uppercase;
+  font-size: 0.72rem;
+  letter-spacing: 0.08em;
+  font-weight: 600;
+}
+.browse-vehicle {
+  color: var(--amber);
+  font-weight: 600;
+}
+
 /* ── Section browser ─────────────────────────────────────── */
 
 .section-browser { margin-top: 3rem; }

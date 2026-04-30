@@ -5,9 +5,11 @@ Run: venv/bin/python3 app.py
 Then open: http://localhost:5000
 """
 
-import sqlite3
+import json
 import re
+import sqlite3
 import threading
+import time
 from pathlib import Path
 from flask import Flask, render_template, request, jsonify, send_from_directory, abort, Response, stream_with_context
 from bs4 import BeautifulSoup
@@ -32,6 +34,8 @@ def slugify(text: str) -> str:
 def get_conn():
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA cache_size=-16000")  # 16 MB page cache
     return conn
 
 
@@ -46,15 +50,26 @@ def get_vehicles():
             for r in rows]
 
 
+_slug_map: dict[str, str] | None = None
+_slug_map_lock = threading.Lock()
+
+
+def _invalidate_vehicle_cache():
+    global _slug_map
+    with _slug_map_lock:
+        _slug_map = None
+
+
 def slug_to_vehicle(slug: str) -> str | None:
-    """Resolve a URL slug back to a vehicle name."""
-    conn = get_conn()
-    vehicles = conn.execute("SELECT DISTINCT vehicle FROM pages").fetchall()
-    conn.close()
-    for row in vehicles:
-        if slugify(row["vehicle"]) == slug:
-            return row["vehicle"]
-    return None
+    """Resolve a URL slug back to a vehicle name (cached)."""
+    global _slug_map
+    with _slug_map_lock:
+        if _slug_map is None:
+            conn = get_conn()
+            rows = conn.execute("SELECT DISTINCT vehicle FROM pages").fetchall()
+            conn.close()
+            _slug_map = {slugify(r["vehicle"]): r["vehicle"] for r in rows}
+        return _slug_map.get(slug)
 
 
 def get_sections(vehicle: str = None):
@@ -145,6 +160,23 @@ def do_search(query: str, n: int = 10, section: str = None,
 
     conn.close()
     return results[:n]
+
+
+def do_browse(section: str, vehicle: str = None, n: int = 100) -> list:
+    """Return non-nav pages in a section, ordered by page number."""
+    conn = get_conn()
+    where = ["section LIKE ?", "is_nav = 0"]
+    params: list = [f"%{section}%"]
+    if vehicle:
+        where.append("vehicle = ?")
+        params.append(vehicle)
+    params.append(n)
+    rows = conn.execute(
+        f"SELECT * FROM pages WHERE {' AND '.join(where)} ORDER BY page_num LIMIT ?",
+        params,
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
 
 
 def get_page_data(vehicle: str, page_num: int):
@@ -269,9 +301,12 @@ def index():
                                 vehicle=vehicle or None)
         total   = len(all_results)
         results = all_results[offset:offset + n]
-
         for r in results:
             snippets[r["page_num"]] = make_snippet(r["content"], query)
+    elif section:
+        all_results = do_browse(section, vehicle=vehicle or None)
+        total   = len(all_results)
+        results = all_results[offset:offset + n]
 
     vehicles = get_vehicles()
     sections = get_sections(vehicle=vehicle)
@@ -395,13 +430,12 @@ def add_vehicle_start():
 
     job_id = create_job()
 
-    thread = threading.Thread(
-        target=add_vehicle,
-        args=(vehicle_name,),
-        kwargs={"vehicle_folder": folder_name, "url": url,
-                "local_path": local_path, "job_id": job_id},
-        daemon=True,
-    )
+    def _run():
+        add_vehicle(vehicle_name, vehicle_folder=folder_name,
+                    url=url, local_path=local_path, job_id=job_id)
+        _invalidate_vehicle_cache()
+
+    thread = threading.Thread(target=_run, daemon=True)
     thread.start()
 
     return jsonify({"job_id": job_id, "folder": folder_name})
@@ -410,9 +444,6 @@ def add_vehicle_start():
 @app.route("/add-vehicle/progress/<job_id>")
 def add_vehicle_progress(job_id):
     """Server-Sent Events stream for job progress."""
-    import time
-    import json
-
     def generate():
         last_idx = 0
         while True:

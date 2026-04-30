@@ -111,6 +111,9 @@ SCHEMA_SQL = """
         UNIQUE(vehicle, page_num)
     );
 
+    CREATE INDEX IF NOT EXISTS idx_pages_vehicle_isnav
+        ON pages(vehicle, is_nav);
+
     CREATE VIRTUAL TABLE IF NOT EXISTS pages_fts USING fts5(
         title,
         breadcrumb,
@@ -189,6 +192,8 @@ def index_vehicle(pages_dir: Path, vehicle: str, rebuild: bool = False):
     print(f"Found {total} HTML pages to index...")
 
     conn = sqlite3.connect(DB_PATH)
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA synchronous=NORMAL")
 
     # Migrate old schema (no vehicle column) if needed
     if DB_PATH.exists() and not schema_has_vehicle_column(conn) and not rebuild:

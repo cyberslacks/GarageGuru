@@ -48,7 +48,16 @@
 <main class="main-content">
 
   {% if not query %}
-  <!-- ── Home page ── -->
+  <!-- ── Home / Browse page ── -->
+
+  {% if vehicle_slug %}
+  <!-- Browsing a specific vehicle -->
+  <div class="browse-header">
+    <span class="browse-label">Browsing</span>
+    <span class="browse-vehicle">{{ vehicle_name }}</span>
+    <a href="/" class="clear-filter">✕ all vehicles</a>
+  </div>
+  {% else %}
   <div class="home-hero">
     <p class="hero-sub">Factory service manuals — fully indexed and searchable</p>
     <div class="quick-searches">
@@ -74,21 +83,24 @@
     <h2 class="section-browser-title">Indexed Vehicles</h2>
     <div class="vehicle-grid">
       {% for v in vehicles %}
-      <a href="/?q=*&vehicle={{ v.slug | urlencode }}" class="vehicle-card">
+      <a href="/?vehicle={{ v.slug | urlencode }}" class="vehicle-card">
         <span class="vehicle-name">{{ v.vehicle }}</span>
         <span class="section-count">{{ v.cnt }} pages</span>
       </a>
       {% endfor %}
     </div>
   </div>
+  {% endif %}
 
-  <!-- Section browser -->
+  <!-- Section browser (filtered to vehicle if one is selected) -->
   <div class="section-browser" style="margin-top:2.5rem">
-    <h2 class="section-browser-title">Browse by Section</h2>
+    <h2 class="section-browser-title">
+      {% if vehicle_slug %}Sections in {{ vehicle_name }}{% else %}Browse by Section{% endif %}
+    </h2>
     <div class="section-grid">
       {% for s in sections %}
         {% if s.section and s.cnt > 5 %}
-        <a href="/?q=*&section={{ s.section | urlencode }}" class="section-card">
+        <a href="/?section={{ s.section | urlencode }}{% if vehicle_slug %}&vehicle={{ vehicle_slug | urlencode }}{% endif %}" class="section-card">
           <span class="section-name">{{ s.section }}</span>
           <span class="section-count">{{ s.cnt }} pages</span>
         </a>

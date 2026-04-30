@@ -32,6 +32,7 @@ import subprocess
 from pathlib import Path
 from urllib.request import urlopen, Request
 from urllib.error import URLError
+from functools import partial
 
 VEHICLES_DIR = Path(__file__).parent / "sources" / "vehicles"
 BUILD_INDEX  = Path(__file__).parent / "build_index.py"
@@ -77,6 +78,14 @@ def get_job(job_id: str) -> dict | None:
 # Helpers
 # ─────────────────────────────────────────────
 
+def _log(msg: str, job_id: str = None):
+    """Log a message to the job queue and stdout."""
+    if job_id:
+        job_log(job_id, msg)
+    else:
+        print(msg)
+
+
 def derive_folder_name(vehicle_name: str) -> str:
     """
     Convert a vehicle name to the folder naming convention.
@@ -101,12 +110,7 @@ def find_pages_dir(root: Path) -> Path | None:
 
 def download_zip(url: str, dest_path: Path, job_id: str = None) -> bool:
     """Download a ZIP file with progress reporting."""
-    def log(msg):
-        if job_id:
-            job_log(job_id, msg)
-        else:
-            print(msg)
-
+    log = partial(_log, job_id=job_id)
     try:
         req = Request(url, headers={"User-Agent": "Mozilla/5.0"})
         with urlopen(req, timeout=60) as resp:
@@ -145,12 +149,7 @@ def download_zip(url: str, dest_path: Path, job_id: str = None) -> bool:
 
 def extract_and_install(zip_path: Path, vehicle_folder: str, job_id: str = None) -> Path | None:
     """Extract ZIP and move pages/ + assets into the vehicle folder."""
-    def log(msg):
-        if job_id:
-            job_log(job_id, msg)
-        else:
-            print(msg)
-
+    log = partial(_log, job_id=job_id)
     vehicle_dir = VEHICLES_DIR / vehicle_folder
     vehicle_dir.mkdir(parents=True, exist_ok=True)
 
@@ -199,12 +198,7 @@ def extract_and_install(zip_path: Path, vehicle_folder: str, job_id: str = None)
 
 def run_index(vehicle_name: str, pages_dir: Path, job_id: str = None):
     """Run build_index.py for the given vehicle."""
-    def log(msg):
-        if job_id:
-            job_log(job_id, msg)
-        else:
-            print(msg)
-
+    log = partial(_log, job_id=job_id)
     log(f"Indexing '{vehicle_name}'...")
     log(f"  Source: {pages_dir}")
 
@@ -236,12 +230,7 @@ def add_vehicle(vehicle_name: str, vehicle_folder: str = None,
                 url: str = None, local_path: str = None,
                 job_id: str = None):
     """Full pipeline: (download or use local file) → extract → index."""
-    def log(msg):
-        if job_id:
-            job_log(job_id, msg)
-        else:
-            print(msg)
-
+    log = partial(_log, job_id=job_id)
     if not url and not local_path:
         job_done(job_id, error="Must provide either a URL or a local file path")
         return
@@ -269,7 +258,9 @@ def add_vehicle(vehicle_name: str, vehicle_folder: str = None,
             log(f"  Size: {zip_path.stat().st_size / 1024 / 1024:.1f} MB")
             log("")
         else:
-            tmp_zip = Path(tempfile.mktemp(suffix=".zip"))
+            fd, tmp_path = tempfile.mkstemp(suffix=".zip")
+            os.close(fd)
+            tmp_zip = Path(tmp_path)
             cleanup_zip = True
             ok = download_zip(url, tmp_zip, job_id=job_id)
             if not ok:
