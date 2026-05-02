@@ -39,8 +39,8 @@
       <!-- Source tabs -->
       <div class="source-tabs">
         <button class="source-tab active" onclick="switchTab('local', this)">
-          &#128194; Local ZIP File
-          <span class="tab-badge">lemon-manuals.la</span>
+          &#8679; Upload ZIP
+          <span class="tab-badge">lemon-manuals.la / charm.li</span>
         </button>
         <button class="source-tab" onclick="switchTab('url', this)">
           &#8659; URL Download
@@ -48,13 +48,13 @@
         </button>
       </div>
 
-      <!-- Local file instructions -->
+      <!-- Upload instructions -->
       <div id="tab-local" class="tab-content">
         <div class="source-instruction">
           <div class="instruction-steps">
-            <div class="step"><span class="step-num">1</span>Go to <strong>lemon-manuals.la</strong> and search for your vehicle</div>
-            <div class="step"><span class="step-num">2</span>Click Download, complete the CAPTCHA, save the ZIP to your computer</div>
-            <div class="step"><span class="step-num">3</span>Paste the full path to the ZIP file below</div>
+            <div class="step"><span class="step-num">1</span>Go to <strong>lemon-manuals.la</strong> or <strong>charm.li</strong> and find your vehicle</div>
+            <div class="step"><span class="step-num">2</span>Download the ZIP archive to your computer</div>
+            <div class="step"><span class="step-num">3</span>Drop the ZIP below or click to browse</div>
           </div>
         </div>
       </div>
@@ -71,24 +71,23 @@
       </div>
 
       <!-- Form -->
-      <form id="add-form" class="add-form" onsubmit="startDownload(event)">
+      <form id="add-form" class="add-form" onsubmit="startImport(event)">
         <input type="hidden" id="source_type" name="source_type" value="local">
 
-        <!-- Local file path (shown for lemon tab) -->
+        <!-- File upload zone (local tab) -->
         <div id="field-local" class="form-group">
-          <label class="form-label" for="local_path">Path to downloaded ZIP</label>
-          <input
-            type="text"
-            id="local_path"
-            name="local_path"
-            class="form-input"
-            placeholder="/home/jordan/Downloads/LEMON 2003 Honda Civic EX.zip"
-            autocomplete="off"
-          >
-          <div class="form-subhint">Full path to the ZIP file you downloaded from lemon-manuals.la</div>
+          <label class="form-label">ZIP File</label>
+          <div class="upload-zone" id="upload-zone" onclick="document.getElementById('zip_file').click()">
+            <div class="upload-icon" id="upload-icon">&#8679;</div>
+            <div class="upload-primary">Drop ZIP here or <span class="upload-browse">browse</span></div>
+            <div class="upload-hint-small">Accepts .zip archives from lemon-manuals.la or charm.li</div>
+            <div class="upload-filename" id="upload-filename" style="display:none"></div>
+            <input type="file" id="zip_file" name="zip_file" accept=".zip" style="display:none"
+                   onchange="onFileSelected(this)" onclick="event.stopPropagation()">
+          </div>
         </div>
 
-        <!-- URL (shown for charm tab) -->
+        <!-- URL input (url tab) -->
         <div id="field-url" class="form-group" style="display:none">
           <label class="form-label" for="url">ZIP Download URL</label>
           <input
@@ -170,14 +169,15 @@
 </footer>
 
 <script>
+  // ── Tab switching ─────────────────────────────────────────────
+
   function switchTab(tab, btn) {
     document.querySelectorAll(".source-tab").forEach(b => b.classList.remove("active"));
     btn.classList.add("active");
-
     document.getElementById("source_type").value = tab;
 
-    document.getElementById("tab-local").style.display = tab === "local" ? "block" : "none";
-    document.getElementById("tab-url").style.display   = tab === "url"   ? "block" : "none";
+    document.getElementById("tab-local").style.display  = tab === "local" ? "block" : "none";
+    document.getElementById("tab-url").style.display    = tab === "url"   ? "block" : "none";
     document.getElementById("field-local").style.display = tab === "local" ? "flex" : "none";
     document.getElementById("field-url").style.display   = tab === "url"   ? "flex" : "none";
 
@@ -185,50 +185,167 @@
       tab === "local" ? "Index Manual" : "Download & Index";
   }
 
+  // ── Folder name auto-derive ───────────────────────────────────
+
   function updateFolder() {
     const name = document.getElementById("vehicle_name").value;
-    const folder = name.replace(/[^\w\s\-\.]/g, "").trim().replace(/\s+/g, "_");
-    document.getElementById("folder_name").value = folder;
+    document.getElementById("folder_name").value =
+      name.replace(/[^\w\s\-\.]/g, "").trim().replace(/\s+/g, "_");
   }
 
-  // Load vehicle list
+  // ── File upload zone ──────────────────────────────────────────
+
+  function onFileSelected(input) {
+    if (input.files.length) setFileDisplay(input.files[0]);
+  }
+
+  function setFileDisplay(file) {
+    const zone  = document.getElementById("upload-zone");
+    const icon  = document.getElementById("upload-icon");
+    const fnEl  = document.getElementById("upload-filename");
+    zone.classList.add("has-file");
+    icon.textContent = "✓";
+    fnEl.textContent = file.name + "  (" + (file.size / 1024 / 1024).toFixed(1) + " MB)";
+    fnEl.style.display = "inline-block";
+  }
+
+  function clearFileDisplay() {
+    const zone  = document.getElementById("upload-zone");
+    const icon  = document.getElementById("upload-icon");
+    const fnEl  = document.getElementById("upload-filename");
+    zone.classList.remove("has-file");
+    icon.innerHTML = "&#8679;";
+    fnEl.style.display = "none";
+    document.getElementById("zip_file").value = "";
+  }
+
+  // Drag-and-drop wiring
+  const uploadZone = document.getElementById("upload-zone");
+
+  uploadZone.addEventListener("dragover", e => {
+    e.preventDefault();
+    uploadZone.classList.add("dragover");
+  });
+  uploadZone.addEventListener("dragleave", () => uploadZone.classList.remove("dragover"));
+  uploadZone.addEventListener("drop", e => {
+    e.preventDefault();
+    uploadZone.classList.remove("dragover");
+    const file = e.dataTransfer.files[0];
+    if (!file) return;
+    if (!file.name.toLowerCase().endsWith(".zip")) {
+      alert("Please drop a .zip file.");
+      return;
+    }
+    const dt = new DataTransfer();
+    dt.items.add(file);
+    document.getElementById("zip_file").files = dt.files;
+    setFileDisplay(file);
+  });
+
+  // ── Vehicle list sidebar ──────────────────────────────────────
+
   fetch("/api/vehicles")
     .then(r => r.json())
     .then(data => {
       const el = document.getElementById("vehicle-list");
-      if (!data.length) { el.innerHTML = '<span style="color:var(--text-dim);font-size:0.82rem">None yet</span>'; return; }
+      if (!data.length) {
+        el.innerHTML = '<span style="color:var(--text-dim);font-size:0.82rem">None yet</span>';
+        return;
+      }
       el.innerHTML = data.map(v =>
         `<div class="sidebar-link" style="cursor:default;font-size:0.82rem">${v.vehicle}</div>`
       ).join("");
     })
     .catch(() => {});
 
-  function startDownload(e) {
+  // ── Form submit ───────────────────────────────────────────────
+
+  function startImport(e) {
     e.preventDefault();
-    const formData = new FormData(document.getElementById("add-form"));
-    const btn = document.getElementById("submit-btn");
+
+    const sourceType = document.getElementById("source_type").value;
+    const zipInput   = document.getElementById("zip_file");
+    const urlInput   = document.getElementById("url");
+    const hasFile    = sourceType === "local" && zipInput.files.length > 0;
+    const hasUrl     = sourceType === "url"   && urlInput.value.trim() !== "";
+
+    if (sourceType === "local" && !hasFile) {
+      alert("Please select or drop a ZIP file first.");
+      return;
+    }
+    if (sourceType === "url" && !hasUrl) {
+      alert("Please enter a download URL.");
+      return;
+    }
+
+    const btn         = document.getElementById("submit-btn");
     const progressWrap = document.getElementById("progress-wrap");
 
     btn.disabled = true;
-    document.getElementById("btn-label").textContent = "Starting...";
+    document.getElementById("btn-label").textContent = hasFile ? "Uploading..." : "Starting...";
     progressWrap.style.display = "block";
     document.getElementById("console").innerHTML = "";
     document.getElementById("done-actions").style.display = "none";
     document.getElementById("progress-status").textContent = "";
-    document.getElementById("progress-title").textContent = "Working...";
+    document.getElementById("progress-title").textContent = hasFile ? "Uploading..." : "Working...";
 
-    fetch("/add-vehicle/start", { method: "POST", body: formData })
-      .then(r => r.json())
-      .then(data => {
-        if (data.error) {
-          appendLine("ERROR: " + data.error, "error");
-          btn.disabled = false;
-          document.getElementById("btn-label").textContent = "Index Manual";
-          return;
+    if (hasFile) appendLine("Uploading ZIP to server...");
+
+    const formData = new FormData(document.getElementById("add-form"));
+    const xhr = new XMLHttpRequest();
+    let uploadLine = null;
+
+    if (hasFile) {
+      xhr.upload.addEventListener("progress", ev => {
+        if (!ev.lengthComputable) return;
+        const pct       = Math.round(ev.loaded / ev.total * 100);
+        const mb_done   = (ev.loaded / 1024 / 1024).toFixed(1);
+        const mb_total  = (ev.total  / 1024 / 1024).toFixed(1);
+        const text      = `  ${pct}%  ·  ${mb_done} / ${mb_total} MB`;
+        if (uploadLine) {
+          uploadLine.textContent = text;
+        } else {
+          uploadLine = appendLine(text);
         }
-        streamProgress(data.job_id);
       });
+    }
+
+    xhr.addEventListener("load", () => {
+      if (xhr.status !== 200) {
+        appendLine("Server error: HTTP " + xhr.status, "error");
+        btn.disabled = false;
+        document.getElementById("btn-label").textContent = "Index Manual";
+        return;
+      }
+      let data;
+      try { data = JSON.parse(xhr.responseText); }
+      catch (_) {
+        appendLine("Invalid server response.", "error");
+        btn.disabled = false;
+        return;
+      }
+      if (data.error) {
+        appendLine("ERROR: " + data.error, "error");
+        btn.disabled = false;
+        document.getElementById("btn-label").textContent = "Index Manual";
+        return;
+      }
+      if (hasFile) appendLine("Upload complete — starting indexer...");
+      document.getElementById("progress-title").textContent = "Working...";
+      streamProgress(data.job_id);
+    });
+
+    xhr.addEventListener("error", () => {
+      appendLine("Network error during upload.", "error");
+      btn.disabled = false;
+      document.getElementById("btn-label").textContent = "Index Manual";
+    });
+
+    xhr.open("POST", "/add-vehicle/start");
+    xhr.send(formData);
   }
+
+  // ── SSE progress stream ───────────────────────────────────────
 
   function streamProgress(jobId) {
     const es = new EventSource("/add-vehicle/progress/" + jobId);
@@ -256,17 +373,21 @@
     };
   }
 
+  // ── Helpers ───────────────────────────────────────────────────
+
   function appendLine(text, cls) {
-    const el = document.getElementById("console");
+    const el   = document.getElementById("console");
     const line = document.createElement("div");
     line.className = "console-line" + (cls ? " " + cls : "");
     line.textContent = text;
     el.appendChild(line);
     el.scrollTop = el.scrollHeight;
+    return line;
   }
 
   function resetForm() {
     document.getElementById("add-form").reset();
+    clearFileDisplay();
     document.getElementById("progress-wrap").style.display = "none";
     document.getElementById("submit-btn").disabled = false;
     document.getElementById("btn-label").textContent = "Index Manual";

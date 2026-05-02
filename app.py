@@ -6,8 +6,10 @@ Then open: http://localhost:5000
 """
 
 import json
+import os
 import re
 import sqlite3
+import tempfile
 import threading
 import time
 from pathlib import Path
@@ -16,6 +18,7 @@ from bs4 import BeautifulSoup
 from downloader import add_vehicle, create_job, get_job, derive_folder_name
 
 app = Flask(__name__)
+app.config["MAX_CONTENT_LENGTH"] = 2 * 1024 * 1024 * 1024  # 2 GB — large manual ZIPs
 
 DB_PATH     = Path(__file__).parent / "truck_manual.db"
 MANUAL_ROOT = Path(__file__).parent / "sources" / "vehicles"
@@ -422,6 +425,220 @@ def serve_manual_static(filename):
 
 
 # ─────────────────────────────────────────────
+# OpenAI-compatible tool endpoints
+# Used by Ollama / Open WebUI / any OAI-format client
+# ─────────────────────────────────────────────
+
+_OAI_TOOLS = [
+    {
+        "type": "function",
+        "function": {
+            "name": "search_manual",
+            "description": (
+                "Full-text search across all indexed service manuals. "
+                "Returns matching pages with title, section, breadcrumb, and a content snippet. "
+                "Use this first when looking up any procedure, spec, or wiring detail."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "Search terms, e.g. 'oil pressure sender' or 'glow plug relay'",
+                    },
+                    "n": {
+                        "type": "integer",
+                        "description": "Max results to return (default 10)",
+                        "default": 10,
+                    },
+                    "vehicle": {
+                        "type": "string",
+                        "description": (
+                            "Vehicle slug to restrict search, e.g. '1988-ford-f-350-7-3l-diesel'. "
+                            "Call list_vehicles to get valid slugs."
+                        ),
+                    },
+                    "section": {
+                        "type": "string",
+                        "description": "Section name substring to filter results, e.g. 'Cooling' or 'Fuel'",
+                    },
+                },
+                "required": ["query"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_page",
+            "description": "Retrieve the full text content of a specific manual page by vehicle and page number.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "vehicle_slug": {
+                        "type": "string",
+                        "description": "Vehicle slug from list_vehicles or a search result url field",
+                    },
+                    "page_num": {
+                        "type": "integer",
+                        "description": "Page number from a search_manual result",
+                    },
+                },
+                "required": ["vehicle_slug", "page_num"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "list_vehicles",
+            "description": "List all indexed service manual vehicles with their slugs and page counts.",
+            "parameters": {"type": "object", "properties": {}},
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "list_sections",
+            "description": "List all manual sections and page counts, optionally filtered to one vehicle.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "vehicle": {
+                        "type": "string",
+                        "description": "Vehicle slug to filter sections (optional)",
+                    },
+                },
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "browse_section",
+            "description": "Return pages in a manual section ordered by page number. Good for reading a topic end-to-end.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "section": {
+                        "type": "string",
+                        "description": "Section name, e.g. 'Cooling System', 'Fuel System', 'Brakes'",
+                    },
+                    "vehicle": {
+                        "type": "string",
+                        "description": "Vehicle slug to filter (optional)",
+                    },
+                    "n": {
+                        "type": "integer",
+                        "description": "Max pages to return (default 50)",
+                        "default": 50,
+                    },
+                },
+                "required": ["section"],
+            },
+        },
+    },
+]
+
+
+@app.route("/v1/tools", methods=["GET"])
+def oai_list_tools():
+    """Return tool definitions in OpenAI function-calling format."""
+    return jsonify(_OAI_TOOLS)
+
+
+@app.route("/v1/tools/call", methods=["POST"])
+def oai_call_tool():
+    """
+    Execute a tool call in OpenAI format.
+
+    Request body:
+        {"name": "search_manual", "arguments": {"query": "oil pressure"}}
+        or with JSON-encoded arguments string (as OpenAI natively sends):
+        {"name": "search_manual", "arguments": "{\"query\": \"oil pressure\"}"}
+
+    Response:
+        {"result": <tool output>}  on success
+        {"error": "..."}           on failure
+    """
+    body = request.get_json(force=True, silent=True)
+    if not body:
+        return jsonify({"error": "JSON body required"}), 400
+
+    name = body.get("name", "").strip()
+    args = body.get("arguments", {})
+
+    # OpenAI sends arguments as a JSON string; accept both string and dict.
+    if isinstance(args, str):
+        try:
+            args = json.loads(args)
+        except json.JSONDecodeError:
+            return jsonify({"error": "arguments must be valid JSON"}), 400
+
+    if not isinstance(args, dict):
+        return jsonify({"error": "arguments must be a JSON object"}), 400
+
+    # ── Dispatch ──────────────────────────────────────────────────
+
+    if name == "search_manual":
+        query = args.get("query", "").strip()
+        if not query:
+            return jsonify({"error": "query is required"}), 400
+        n            = int(args.get("n", 10))
+        section      = args.get("section", "").strip() or None
+        vehicle_slug = args.get("vehicle", "").strip()
+        vehicle      = slug_to_vehicle(vehicle_slug) if vehicle_slug else None
+        rows = do_search(query, n=n, section=section, vehicle=vehicle)
+        result = [
+            {
+                "page_num":   r["page_num"],
+                "vehicle":    r["vehicle"],
+                "title":      r["title"],
+                "breadcrumb": r["breadcrumb"],
+                "section":    r["section"],
+                "snippet":    make_snippet(r["content"], query, 300),
+                "url":        f"/page/{slugify(r['vehicle'])}/{r['page_num']}",
+            }
+            for r in rows
+        ]
+
+    elif name == "get_page":
+        vehicle_slug = args.get("vehicle_slug", "").strip()
+        page_num     = args.get("page_num")
+        if not vehicle_slug or page_num is None:
+            return jsonify({"error": "vehicle_slug and page_num are required"}), 400
+        vehicle = slug_to_vehicle(vehicle_slug)
+        if not vehicle:
+            return jsonify({"error": f"Vehicle '{vehicle_slug}' not found"}), 404
+        data = get_page_data(vehicle, int(page_num))
+        if not data:
+            return jsonify({"error": f"Page {page_num} not found for '{vehicle}'"}), 404
+        result = data
+
+    elif name == "list_vehicles":
+        result = get_vehicles()
+
+    elif name == "list_sections":
+        vehicle_slug = args.get("vehicle", "").strip()
+        vehicle      = slug_to_vehicle(vehicle_slug) if vehicle_slug else None
+        result = get_sections(vehicle=vehicle)
+
+    elif name == "browse_section":
+        section = args.get("section", "").strip()
+        if not section:
+            return jsonify({"error": "section is required"}), 400
+        vehicle_slug = args.get("vehicle", "").strip()
+        vehicle      = slug_to_vehicle(vehicle_slug) if vehicle_slug else None
+        n            = int(args.get("n", 50))
+        result = do_browse(section, vehicle=vehicle, n=n)
+
+    else:
+        return jsonify({"error": f"Unknown tool '{name}'"}), 404
+
+    return jsonify({"result": result})
+
+
+# ─────────────────────────────────────────────
 # Add Vehicle
 # ─────────────────────────────────────────────
 
@@ -433,28 +650,40 @@ def add_vehicle_page():
 @app.route("/add-vehicle/start", methods=["POST"])
 def add_vehicle_start():
     url          = request.form.get("url", "").strip() or None
-    local_path   = request.form.get("local_path", "").strip() or None
     vehicle_name = request.form.get("vehicle_name", "").strip()
     folder_name  = request.form.get("folder_name", "").strip() or None
+    uploaded     = request.files.get("zip_file")
 
     if not vehicle_name:
         return jsonify({"error": "vehicle_name is required"}), 400
-    if not url and not local_path:
-        return jsonify({"error": "Provide either a download URL or a local file path"}), 400
+    if not url and not (uploaded and uploaded.filename):
+        return jsonify({"error": "Provide either a ZIP file upload or a download URL"}), 400
 
     if not folder_name:
         folder_name = derive_folder_name(vehicle_name)
 
+    # Save uploaded file to a temp path before the request context closes.
+    local_path = None
+    tmp_path   = None
+    if uploaded and uploaded.filename:
+        fd, tmp = tempfile.mkstemp(suffix=".zip")
+        os.close(fd)
+        tmp_path = Path(tmp)
+        uploaded.save(str(tmp_path))
+        local_path = str(tmp_path)
+
     job_id = create_job()
 
     def _run():
-        add_vehicle(vehicle_name, vehicle_folder=folder_name,
-                    url=url, local_path=local_path, job_id=job_id)
+        try:
+            add_vehicle(vehicle_name, vehicle_folder=folder_name,
+                        url=url, local_path=local_path, job_id=job_id)
+        finally:
+            if tmp_path and tmp_path.exists():
+                tmp_path.unlink(missing_ok=True)
         _invalidate_vehicle_cache()
 
-    thread = threading.Thread(target=_run, daemon=True)
-    thread.start()
-
+    threading.Thread(target=_run, daemon=True).start()
     return jsonify({"job_id": job_id, "folder": folder_name})
 
 

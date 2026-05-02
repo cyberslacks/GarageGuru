@@ -786,6 +786,39 @@ a:hover { text-decoration: underline; }
   margin-top: 0.2rem;
 }
 
+/* Upload drop zone */
+.upload-zone {
+  border: 2px dashed var(--border);
+  border-radius: var(--radius);
+  padding: 1.75rem 1rem;
+  text-align: center;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+  user-select: none;
+}
+.upload-zone:hover,
+.upload-zone.dragover {
+  border-color: var(--accent);
+  background: rgba(47,128,237,0.05);
+}
+.upload-zone.has-file { border-color: var(--green); border-style: solid; }
+.upload-icon { font-size: 1.75rem; color: var(--text-dim); margin-bottom: 0.4rem; }
+.upload-zone.has-file .upload-icon { color: var(--green); }
+.upload-primary { font-size: 0.9rem; color: var(--text-muted); margin-bottom: 0.25rem; }
+.upload-browse { color: var(--accent); text-decoration: underline; }
+.upload-hint-small { font-size: 0.75rem; color: var(--text-dim); }
+.upload-filename {
+  display: inline-block;
+  margin-top: 0.65rem;
+  font-size: 0.8rem;
+  font-family: monospace;
+  color: var(--green);
+  background: rgba(61,186,110,0.08);
+  border: 1px solid rgba(61,186,110,0.25);
+  border-radius: var(--radius);
+  padding: 0.3rem 0.65rem;
+}
+
 /* Source cards */
 .source-cards {
   display: grid;
