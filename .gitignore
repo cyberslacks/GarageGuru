@@ -18,3 +18,6 @@ sources/vehicles/*/*.html
 sources/vehicles/*/*.css
 sources/vehicles/*/*.js
 sources/vehicles/*/README.txt
+
+# Transcript source files — local data, not committed to git
+sources/transcripts/

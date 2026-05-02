@@ -16,6 +16,8 @@
       <span class="logo-sub">Factory Manuals · Full Text Search</span>
     </a>
 
+    <a href="/add-vehicle" class="add-vehicle-btn" title="Add a vehicle manual">+ Add Vehicle</a>
+
     <form class="search-form" action="/" method="get">
       <div class="search-box-wrap">
         <input
@@ -45,9 +47,11 @@
     <aside class="sidebar">
       <div class="sidebar-section">
         {% if query %}
-        <a href="/?q={{ query | urlencode }}" class="back-btn">&#8592; Back to results</a>
+          <a href="/?q={{ query | urlencode }}{% if section %}&section={{ section | urlencode }}{% endif %}{% if from_vehicle %}&vehicle={{ from_vehicle | urlencode }}{% endif %}" class="back-btn">&#8592; Back to results</a>
+        {% elif section %}
+          <a href="/?section={{ section | urlencode }}{% if from_vehicle %}&vehicle={{ from_vehicle | urlencode }}{% endif %}" class="back-btn">&#8592; Back to {{ section }}</a>
         {% else %}
-        <a href="/" class="back-btn">&#8592; Back to home</a>
+          <a href="/" class="back-btn">&#8592; Back to home</a>
         {% endif %}
       </div>
 

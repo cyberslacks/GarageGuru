@@ -1,0 +1,14 @@
+[Unit]
+Description=Truck Agent Service Manual Dashboard
+After=network.target
+
+[Service]
+ExecStart=/home/jordan/Documents/pjs/Oilburners/DashGuages/truck_agent/venv/bin/python3 /home/jordan/Documents/pjs/Oilburners/DashGuages/truck_agent/app.py
+WorkingDirectory=/home/jordan/Documents/pjs/Oilburners/DashGuages/truck_agent
+Restart=on-failure
+User=jordan
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

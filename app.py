@@ -5,13 +5,20 @@ Run: venv/bin/python3 app.py
 Then open: http://localhost:5000
 """
 
-import sqlite3
+import json
+import os
 import re
+import sqlite3
+import tempfile
+import threading
+import time
 from pathlib import Path
-from flask import Flask, render_template, request, jsonify, send_from_directory, abort
+from flask import Flask, render_template, request, jsonify, send_from_directory, abort, Response, stream_with_context
 from bs4 import BeautifulSoup
+from downloader import add_vehicle, create_job, get_job, derive_folder_name
 
 app = Flask(__name__)
+app.config["MAX_CONTENT_LENGTH"] = 2 * 1024 * 1024 * 1024  # 2 GB — large manual ZIPs
 
 DB_PATH     = Path(__file__).parent / "truck_manual.db"
 MANUAL_ROOT = Path(__file__).parent / "sources" / "vehicles"
@@ -30,6 +37,8 @@ def slugify(text: str) -> str:
 def get_conn():
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA cache_size=-16000")  # 16 MB page cache
     return conn
 
 
@@ -44,15 +53,26 @@ def get_vehicles():
             for r in rows]
 
 
+_slug_map: dict[str, str] | None = None
+_slug_map_lock = threading.Lock()
+
+
+def _invalidate_vehicle_cache():
+    global _slug_map
+    with _slug_map_lock:
+        _slug_map = None
+
+
 def slug_to_vehicle(slug: str) -> str | None:
-    """Resolve a URL slug back to a vehicle name."""
-    conn = get_conn()
-    vehicles = conn.execute("SELECT DISTINCT vehicle FROM pages").fetchall()
-    conn.close()
-    for row in vehicles:
-        if slugify(row["vehicle"]) == slug:
-            return row["vehicle"]
-    return None
+    """Resolve a URL slug back to a vehicle name (cached)."""
+    global _slug_map
+    with _slug_map_lock:
+        if _slug_map is None:
+            conn = get_conn()
+            rows = conn.execute("SELECT DISTINCT vehicle FROM pages").fetchall()
+            conn.close()
+            _slug_map = {slugify(r["vehicle"]): r["vehicle"] for r in rows}
+        return _slug_map.get(slug)
 
 
 def get_sections(vehicle: str = None):
@@ -73,12 +93,11 @@ def get_sections(vehicle: str = None):
     return [dict(r) for r in rows]
 
 
-def do_search(query: str, n: int = 10, section: str = None,
-              vehicle: str = None, include_nav: bool = False):
-    conn = get_conn()
-
+def _run_fts(conn, fts_query: str, n: int, vehicle: str,
+             section: str, include_nav: bool) -> list:
+    """Execute one FTS query and return rows."""
     where_parts = ["pages_fts MATCH ?"]
-    params = [query]
+    params = [fts_query]
 
     if not include_nav:
         where_parts.append("p.is_nav = 0")
@@ -89,28 +108,76 @@ def do_search(query: str, n: int = 10, section: str = None,
         where_parts.append("p.section LIKE ?")
         params.append(f"%{section}%")
 
-    where_clause = " AND ".join(where_parts)
     params.append(n)
-
     sql = f"""
         SELECT p.id, p.vehicle, p.page_num, p.title, p.breadcrumb,
                p.section, p.subsection, p.content, p.is_nav, rank
         FROM pages_fts
         JOIN pages p ON pages_fts.rowid = p.id
-        WHERE {where_clause}
+        WHERE {" AND ".join(where_parts)}
         ORDER BY rank
         LIMIT ?
     """
-
     try:
-        rows = conn.execute(sql, params).fetchall()
+        return conn.execute(sql, params).fetchall()
     except sqlite3.OperationalError:
-        try:
-            params[0] = f'"{query}"'
-            rows = conn.execute(sql, params).fetchall()
-        except Exception:
-            rows = []
+        return []
 
+
+def do_search(query: str, n: int = 10, section: str = None,
+              vehicle: str = None, include_nav: bool = False):
+    """
+    Search with a three-tier fallback for multi-word queries:
+      1. Exact phrase  — "injection pump"   (words must be adjacent)
+      2. Proximity     — injection NEAR/5 pump  (words within 5 tokens)
+      3. All terms     — injection pump          (words anywhere on the page)
+
+    Single-word queries skip to tier 3 directly.
+    Results from higher tiers are returned first; lower-tier results are
+    appended only to fill up to n without duplicating.
+    """
+    conn = get_conn()
+    words = query.strip().split()
+    seen_ids = set()
+    results = []
+
+    def add_rows(rows):
+        for r in rows:
+            if r["id"] not in seen_ids:
+                seen_ids.add(r["id"])
+                results.append(dict(r))
+
+    if len(words) > 1:
+        # Tier 1 — exact phrase
+        phrase = f'"{query}"'
+        add_rows(_run_fts(conn, phrase, n, vehicle, section, include_nav))
+
+        # Tier 2 — proximity (words within 5 tokens of each other)
+        if len(results) < n:
+            near = " NEAR/5 ".join(words)
+            add_rows(_run_fts(conn, near, n, vehicle, section, include_nav))
+
+    # Tier 3 — all terms anywhere (standard FTS)
+    if len(results) < n:
+        add_rows(_run_fts(conn, query, n, vehicle, section, include_nav))
+
+    conn.close()
+    return results[:n]
+
+
+def do_browse(section: str, vehicle: str = None, n: int = 100) -> list:
+    """Return non-nav pages in a section, ordered by page number."""
+    conn = get_conn()
+    where = ["section LIKE ?", "is_nav = 0"]
+    params: list = [f"%{section}%"]
+    if vehicle:
+        where.append("vehicle = ?")
+        params.append(vehicle)
+    params.append(n)
+    rows = conn.execute(
+        f"SELECT * FROM pages WHERE {' AND '.join(where)} ORDER BY page_num LIMIT ?",
+        params,
+    ).fetchall()
     conn.close()
     return [dict(r) for r in rows]
 
@@ -156,10 +223,17 @@ def make_snippet(content: str, query: str, length: int = 300) -> str:
     return snippet
 
 
-def render_page_html(vehicle: str, page_num: int, pages_dir: str = None) -> str:
-    """Extract and return the main content HTML from a manual page file."""
+def render_page_html(vehicle: str, page_num: int, pages_dir: str = None,
+                     db_content: str = None) -> str:
+    """Extract and return the main content HTML from a manual page file.
+
+    Falls back to db_content (plain text from the DB) when no HTML file exists
+    — used for transcript pages that were indexed from .txt sources.
+    """
     if pages_dir:
         vehicle_dir = Path(pages_dir)
+        if not vehicle_dir.is_absolute():
+            vehicle_dir = Path(__file__).parent / vehicle_dir
     else:
         # Fallback: search recursively (should not normally be needed)
         vehicle_dir = None
@@ -168,10 +242,14 @@ def render_page_html(vehicle: str, page_num: int, pages_dir: str = None) -> str:
                 vehicle_dir = pd
                 break
 
-    if vehicle_dir is None or not vehicle_dir.exists():
+    html_file = vehicle_dir / f"{page_num}.html" if vehicle_dir else None
+
+    if not html_file or not html_file.exists():
+        if db_content:
+            escaped = db_content.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+            return f'<div class="main transcript-content"><p>{escaped}</p></div>'
         return "<p>Page file not found.</p>"
 
-    html_file = vehicle_dir / f"{page_num}.html"
     with open(html_file, "r", encoding="utf-8", errors="ignore") as f:
         soup = BeautifulSoup(f.read(), "html.parser")
 
@@ -237,9 +315,12 @@ def index():
                                 vehicle=vehicle or None)
         total   = len(all_results)
         results = all_results[offset:offset + n]
-
         for r in results:
             snippets[r["page_num"]] = make_snippet(r["content"], query)
+    elif section:
+        all_results = do_browse(section, vehicle=vehicle or None)
+        total   = len(all_results)
+        results = all_results[offset:offset + n]
 
     vehicles = get_vehicles()
     sections = get_sections(vehicle=vehicle)
@@ -273,8 +354,12 @@ def view_page(vehicle_slug, page_num):
     if not data:
         abort(404)
 
-    content_html = render_page_html(vehicle, page_num, pages_dir=data.get("pages_dir"))
-    query = request.args.get("q", "")
+    content_html = render_page_html(vehicle, page_num,
+                                    pages_dir=data.get("pages_dir"),
+                                    db_content=data.get("content"))
+    query        = request.args.get("q", "")
+    section      = request.args.get("section", "")
+    from_vehicle = request.args.get("vehicle", "")
 
     return render_template(
         "page.html",
@@ -282,6 +367,8 @@ def view_page(vehicle_slug, page_num):
         vehicle_slug=vehicle_slug,
         content_html=content_html,
         query=query,
+        section=section,
+        from_vehicle=from_vehicle,
     )
 
 
@@ -327,9 +414,313 @@ def api_page(vehicle_slug, page_num):
     return jsonify(data)
 
 
+@app.route("/api/vehicles")
+def api_vehicles():
+    return jsonify(get_vehicles())
+
+
 @app.route("/manual-static/<path:filename>")
 def serve_manual_static(filename):
     return send_from_directory(MANUAL_ROOT, filename)
+
+
+# ─────────────────────────────────────────────
+# OpenAI-compatible tool endpoints
+# Used by Ollama / Open WebUI / any OAI-format client
+# ─────────────────────────────────────────────
+
+_OAI_TOOLS = [
+    {
+        "type": "function",
+        "function": {
+            "name": "search_manual",
+            "description": (
+                "Full-text search across all indexed service manuals. "
+                "Returns matching pages with title, section, breadcrumb, and a content snippet. "
+                "Use this first when looking up any procedure, spec, or wiring detail."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "Search terms, e.g. 'oil pressure sender' or 'glow plug relay'",
+                    },
+                    "n": {
+                        "type": "integer",
+                        "description": "Max results to return (default 10)",
+                        "default": 10,
+                    },
+                    "vehicle": {
+                        "type": "string",
+                        "description": (
+                            "Vehicle slug to restrict search, e.g. '1988-ford-f-350-7-3l-diesel'. "
+                            "Call list_vehicles to get valid slugs."
+                        ),
+                    },
+                    "section": {
+                        "type": "string",
+                        "description": "Section name substring to filter results, e.g. 'Cooling' or 'Fuel'",
+                    },
+                },
+                "required": ["query"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_page",
+            "description": "Retrieve the full text content of a specific manual page by vehicle and page number.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "vehicle_slug": {
+                        "type": "string",
+                        "description": "Vehicle slug from list_vehicles or a search result url field",
+                    },
+                    "page_num": {
+                        "type": "integer",
+                        "description": "Page number from a search_manual result",
+                    },
+                },
+                "required": ["vehicle_slug", "page_num"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "list_vehicles",
+            "description": "List all indexed service manual vehicles with their slugs and page counts.",
+            "parameters": {"type": "object", "properties": {}},
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "list_sections",
+            "description": "List all manual sections and page counts, optionally filtered to one vehicle.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "vehicle": {
+                        "type": "string",
+                        "description": "Vehicle slug to filter sections (optional)",
+                    },
+                },
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "browse_section",
+            "description": "Return pages in a manual section ordered by page number. Good for reading a topic end-to-end.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "section": {
+                        "type": "string",
+                        "description": "Section name, e.g. 'Cooling System', 'Fuel System', 'Brakes'",
+                    },
+                    "vehicle": {
+                        "type": "string",
+                        "description": "Vehicle slug to filter (optional)",
+                    },
+                    "n": {
+                        "type": "integer",
+                        "description": "Max pages to return (default 50)",
+                        "default": 50,
+                    },
+                },
+                "required": ["section"],
+            },
+        },
+    },
+]
+
+
+@app.route("/v1/tools", methods=["GET"])
+def oai_list_tools():
+    """Return tool definitions in OpenAI function-calling format."""
+    return jsonify(_OAI_TOOLS)
+
+
+@app.route("/v1/tools/call", methods=["POST"])
+def oai_call_tool():
+    """
+    Execute a tool call in OpenAI format.
+
+    Request body:
+        {"name": "search_manual", "arguments": {"query": "oil pressure"}}
+        or with JSON-encoded arguments string (as OpenAI natively sends):
+        {"name": "search_manual", "arguments": "{\"query\": \"oil pressure\"}"}
+
+    Response:
+        {"result": <tool output>}  on success
+        {"error": "..."}           on failure
+    """
+    body = request.get_json(force=True, silent=True)
+    if not body:
+        return jsonify({"error": "JSON body required"}), 400
+
+    name = body.get("name", "").strip()
+    args = body.get("arguments", {})
+
+    # OpenAI sends arguments as a JSON string; accept both string and dict.
+    if isinstance(args, str):
+        try:
+            args = json.loads(args)
+        except json.JSONDecodeError:
+            return jsonify({"error": "arguments must be valid JSON"}), 400
+
+    if not isinstance(args, dict):
+        return jsonify({"error": "arguments must be a JSON object"}), 400
+
+    # ── Dispatch ──────────────────────────────────────────────────
+
+    if name == "search_manual":
+        query = args.get("query", "").strip()
+        if not query:
+            return jsonify({"error": "query is required"}), 400
+        n            = int(args.get("n", 10))
+        section      = args.get("section", "").strip() or None
+        vehicle_slug = args.get("vehicle", "").strip()
+        vehicle      = slug_to_vehicle(vehicle_slug) if vehicle_slug else None
+        rows = do_search(query, n=n, section=section, vehicle=vehicle)
+        result = [
+            {
+                "page_num":   r["page_num"],
+                "vehicle":    r["vehicle"],
+                "title":      r["title"],
+                "breadcrumb": r["breadcrumb"],
+                "section":    r["section"],
+                "snippet":    make_snippet(r["content"], query, 300),
+                "url":        f"/page/{slugify(r['vehicle'])}/{r['page_num']}",
+            }
+            for r in rows
+        ]
+
+    elif name == "get_page":
+        vehicle_slug = args.get("vehicle_slug", "").strip()
+        page_num     = args.get("page_num")
+        if not vehicle_slug or page_num is None:
+            return jsonify({"error": "vehicle_slug and page_num are required"}), 400
+        vehicle = slug_to_vehicle(vehicle_slug)
+        if not vehicle:
+            return jsonify({"error": f"Vehicle '{vehicle_slug}' not found"}), 404
+        data = get_page_data(vehicle, int(page_num))
+        if not data:
+            return jsonify({"error": f"Page {page_num} not found for '{vehicle}'"}), 404
+        result = data
+
+    elif name == "list_vehicles":
+        result = get_vehicles()
+
+    elif name == "list_sections":
+        vehicle_slug = args.get("vehicle", "").strip()
+        vehicle      = slug_to_vehicle(vehicle_slug) if vehicle_slug else None
+        result = get_sections(vehicle=vehicle)
+
+    elif name == "browse_section":
+        section = args.get("section", "").strip()
+        if not section:
+            return jsonify({"error": "section is required"}), 400
+        vehicle_slug = args.get("vehicle", "").strip()
+        vehicle      = slug_to_vehicle(vehicle_slug) if vehicle_slug else None
+        n            = int(args.get("n", 50))
+        result = do_browse(section, vehicle=vehicle, n=n)
+
+    else:
+        return jsonify({"error": f"Unknown tool '{name}'"}), 404
+
+    return jsonify({"result": result})
+
+
+# ─────────────────────────────────────────────
+# Add Vehicle
+# ─────────────────────────────────────────────
+
+@app.route("/add-vehicle", methods=["GET"])
+def add_vehicle_page():
+    return render_template("add_vehicle.html")
+
+
+@app.route("/add-vehicle/start", methods=["POST"])
+def add_vehicle_start():
+    url          = request.form.get("url", "").strip() or None
+    vehicle_name = request.form.get("vehicle_name", "").strip()
+    folder_name  = request.form.get("folder_name", "").strip() or None
+    uploaded     = request.files.get("zip_file")
+
+    if not vehicle_name:
+        return jsonify({"error": "vehicle_name is required"}), 400
+    if not url and not (uploaded and uploaded.filename):
+        return jsonify({"error": "Provide either a ZIP file upload or a download URL"}), 400
+
+    if not folder_name:
+        folder_name = derive_folder_name(vehicle_name)
+
+    # Save uploaded file to a temp path before the request context closes.
+    local_path = None
+    tmp_path   = None
+    if uploaded and uploaded.filename:
+        fd, tmp = tempfile.mkstemp(suffix=".zip")
+        os.close(fd)
+        tmp_path = Path(tmp)
+        uploaded.save(str(tmp_path))
+        local_path = str(tmp_path)
+
+    job_id = create_job()
+
+    def _run():
+        try:
+            add_vehicle(vehicle_name, vehicle_folder=folder_name,
+                        url=url, local_path=local_path, job_id=job_id)
+        finally:
+            if tmp_path and tmp_path.exists():
+                tmp_path.unlink(missing_ok=True)
+        _invalidate_vehicle_cache()
+
+    threading.Thread(target=_run, daemon=True).start()
+    return jsonify({"job_id": job_id, "folder": folder_name})
+
+
+@app.route("/add-vehicle/progress/<job_id>")
+def add_vehicle_progress(job_id):
+    """Server-Sent Events stream for job progress."""
+    def generate():
+        last_idx = 0
+        while True:
+            job = get_job(job_id)
+            if not job:
+                yield f"data: {json.dumps({'error': 'Job not found'})}\n\n"
+                break
+
+            messages = job.get("messages", [])
+            for msg in messages[last_idx:]:
+                yield f"data: {json.dumps({'msg': msg})}\n\n"
+            last_idx = len(messages)
+
+            if job.get("done"):
+                error = job.get("error")
+                if error:
+                    yield f"data: {json.dumps({'done': True, 'error': error})}\n\n"
+                else:
+                    yield f"data: {json.dumps({'done': True})}\n\n"
+                break
+
+            time.sleep(0.5)
+
+    return Response(
+        stream_with_context(generate()),
+        mimetype="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 # ─────────────────────────────────────────────
